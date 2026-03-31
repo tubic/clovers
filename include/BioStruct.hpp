@@ -2,7 +2,7 @@
  * @brief       Bioinformatics data structures. 
  * 
  * @author      Zetong Zhang, Yan Lin, Feng Gao
- * @version     1.0.3
+ * @version     1.0.5
  * @date        2025-11-30
  * @modified    2026-02-28
  * @license     GNU GPLv3
@@ -56,6 +56,7 @@ namespace bio {
         char *     seq;             // nucleotide sequence
         float      gc_frac;         // GC fraction
         float      score=0;         // zcurve score
+        float      r_score=0;       // rbs score
         bool       partial5=false;  // partial 5'-end
         bool       partial3=false;  // partial 3'-end
         orf() noexcept: host((char*)"anonymous") {}

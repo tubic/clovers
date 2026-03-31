@@ -186,14 +186,15 @@ void encoding::encode(const char *seq, int len, float *data, int n_trans) noexce
     }
 }
 
-void encoding::encode_orfs(bio::orf_array &orfs, float *data, int n_trans) noexcept {
+void encoding::encode_orfs(bio::orf_array &orfs, float *data, int n_trans, bool rbs) noexcept {
     const int count = (int) orfs.size();
 #ifdef _OPENMP
     #pragma omp parallel for
 #endif
     for (int i = 0; i < count; i ++) {
-        float *head = data + (i * DIM_S);
+        float *head = data + (i * (DIM_S + rbs));
         encode(orfs[i].seq, orfs[i].len, head, n_trans);
+        if (rbs) head[DIM_S] = orfs[i].r_score;
     }
 }
 
@@ -224,7 +225,8 @@ float *encoding::minmax_scale(
         int j;
         float *p = data + i*dim;
         for (j = 0; j < dim; j++, p ++) {
-            *p = (data[i*dim+j]-(float)mins[j])/(float)(maxs[j]-mins[j]);
+            float ex_dif = (float)(maxs[j]-mins[j]);
+            if (ex_dif != 0) *p = (data[i*dim+j]-(float)mins[j])/ex_dif;
         }
     }
     return data;

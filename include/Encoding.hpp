@@ -2,7 +2,7 @@
  * @brief       Encoding functions for Z-curve.
  * 
  * @author      Zetong Zhang, Yan Lin, Feng Gao
- * @version     1.0.3
+ * @version     1.0.5
  * @date        2025-11-30
  * @modified    2026-02-28
  * @license     GNU GPLv3
@@ -22,7 +22,7 @@
 #include "BioStruct.hpp"
 /** @deprecated
  * dimension of Z-curve params (all-in version).     */
-#define DIM_A 765
+#define DIM_A 190
 /* dimension of Z-curve params. (simplified version) */
 #define DIM_S 189
 /* 
@@ -77,7 +77,7 @@ namespace encoding {
      * @param orfs  The input ORF array.
      * @param data  The output Z-curve params.
      */
-    void     encode_orfs(bio::orf_array &orfs, float *data, int n_trans) noexcept;
+    void     encode_orfs(bio::orf_array &orfs, float *data, int n_trans, bool rbs) noexcept;
     /**
      * @brief           Transform Z-curve params to standardized data.
      * @param data      The input Z-curve params.

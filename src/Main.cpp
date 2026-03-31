@@ -4,7 +4,7 @@
  *                                                         *    
  *   @copyright: (C) 2003-2026 TUBIC, Tianjin University   *
  *   @author:    Zetong Zhang, Yan Lin, Feng Gao           *
- *   @version:   1.0.3                                     *
+ *   @version:   1.0.5                                     *
  *   @date:      2025-11-30                                *
  *   @modified   2025-03-20                                *
  *   @license:   GNU GPLv3                                 *
@@ -56,6 +56,8 @@ int main(int argc, char *argv[]) {
 
         ("q,quiet",    "Run quietly with no stderr output.")
 
+        ("v,version",  "Print version info and exit.")
+
         ("T,threads",  "Number of threads to use. (default: all)",
          cxxopts::value<uint32_t>());
     
@@ -78,8 +80,8 @@ int main(int argc, char *argv[]) {
     
     /* clovers parameters */
     options.add_options("CLOVERS")
-        ("g,table",    "Specify a translation table to use.",
-         cxxopts::value<uint32_t>()->default_value("11"))
+        ("g,table",    "Specify a translation table to use (1, 4, 11, 16, 25, auto).",
+         cxxopts::value<std::string>()->default_value("11"))
 
         ("l,minlen",   "Specify the mininum length of ORFs.",
          cxxopts::value<uint32_t>()->default_value("90"))
@@ -106,20 +108,20 @@ int main(int argc, char *argv[]) {
          cxxopts::value<std::string>());
     
     /* gol-reporter parameters */
-    options.add_options("GOP-Reporter")
-        ("L,minolen",  "Specify the mininum overprinted length between two ORFs.",
+    options.add_options("GOL-Reporter")
+        ("L,minolen",  "Specify the mininum overlapped length between two ORFs.",
          cxxopts::value<uint32_t>()->default_value("120"))
 
-        ("O,overprint","Write overprinted genes to the selected file (GFF3 format).",
+        ("O,overlap","Write overlapped genes to the selected file (GFF3 format).",
          cxxopts::value<std::string>())
 
-        ("A,amino",    "Write protein translations of overprinted genes to the selected file.",
+        ("A,amino",    "Write protein translations of overlapped genes to the selected file.",
          cxxopts::value<std::string>())
 
-        ("D,nucl",     "Write nucleotide sequences of overprinted genes to the selected file.",
+        ("D,nucl",     "Write nucleotide sequences of overlapped genes to the selected file.",
          cxxopts::value<std::string>())
         
-        ("R,ratio",    "Specify minimum overlap ratio for overprinted genes.",
+        ("R,ratio",    "Specify minimum overlap ratio for overlapped genes.",
          cxxopts::value<float>()->default_value("0.6"));
     
     cxxopts::ParseResult args;
@@ -133,7 +135,7 @@ int main(int argc, char *argv[]) {
     /* show help information and exit with code 0 */
     if (argc <= 1 || args.count("help")) {
         std::cerr << "- - - - - - - - - - - - - - - - - - - - - - - - - - - -\n"
-                  << "PROTEIN-CODING GENE RECOGNITION SYSTEM OF CLOVERS 1.0.3\n\n"
+                  << "PROTEIN-CODING GENE RECOGNITION SYSTEM OF CLOVERS 1.0.5\n\n"
                   << "Copyright:  (C) 2003-2026 TUBIC,Tianjin University     \n"
                   << "Authors:    Zetong Zhang, Yan Lin*, Feng Gao*          \n"
                   << "Date:       November 30, 2025                          \n"
@@ -147,6 +149,7 @@ int main(int argc, char *argv[]) {
         }
         return 0;
     }
+    if (args.count("version")) { std::cerr << VERSION << "\n"; return 0; }
 
     /* set using quiet mode or not */
     if (args.count("quiet")) QUIET = true;
@@ -165,20 +168,6 @@ int main(int argc, char *argv[]) {
     omp_set_num_threads(num_threads);
     if (!QUIET) std::cerr << "Threads Used:" << std::setw(36) << num_threads << '\n';
     #endif
-    
-    /* initialize translation table and start/stop codon list */
-    uint32_t table = args["table"].as<uint32_t>();
-    if (table == 1) {
-        STARTS.assign({ "ATG "});
-    } else if (table == 4) {
-        STOPS.assign({ "TAA", "TAG" });
-        trans_tbl[14] = 'W';
-    } else if (table != 11) {
-        std::cerr << "\nError: unsupported translation table " << table 
-                  << " (options: 1 (standard), 4 (mycoplasma, spiroplasma), 11 (bacteria, archaea))\n";
-        return 1;
-    }
-    if (!QUIET) std::cerr << "Translation Table:" << std::setw(31) << table << '\n';
 
     /* set mininum gene length */
     auto minlen = args["minlen"].as<uint32_t>();
@@ -195,6 +184,10 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+    /* load heuristic models */
+    if (!model::init_models()) return 1;
+    if(!QUIET) std::cerr << "Loaded Model:" << std::setw(37) << "Prokaryota/Phage\n";
+
     /* handle input */
     std::string input = "-";
     if (args.count("input")) input = args["input"].as<std::string>();
@@ -206,11 +199,55 @@ int main(int argc, char *argv[]) {
     }
     if (!QUIET) std::cerr << "Number of Scaffolds: " << std::setw(28) << scaffolds.size() << '\n';
 
+    /* initialize translation table and start/stop codon list */
+    auto table = args["table"].as<std::string>();
+    if (table == "auto") {
+        int codes[3] { 11, 4, 16 };
+        float max_score = 0.0F;
+        for (int i = 0; i < 3; i ++) {
+            if (!QUIET) std::cerr << "Trying Table #" << std::setw(2) << std::setbase('0') << codes[i] << " ...       ";
+            float score = model::check_code(scaffolds, codes[i]);
+            if (score > max_score) {
+                max_score = score;
+                table = std::to_string(codes[i]);
+            }
+            if (!QUIET) std::cerr << std::setw(17) << "Score: " << std::fixed << std::setprecision(3) << score << '\n';
+        }
+    }
+
+    if (table == "1") {
+        STARTS.assign({ "ATG" });
+    } else if (table == "4") {
+        STOPS.assign({ "TAA", "TAG" });
+        trans_tbl[14] = 'W';
+    } else if (table == "15") {
+        STOPS.assign({ "TAA", "TGA" });
+        trans_tbl[11] = 'Q';
+    }else if (table == "16") {
+        STOPS.assign({ "TAA", "TGA" });
+        trans_tbl[11] = 'L';
+    } else if (table == "25") {
+        STOPS.assign({ "TAA", "TAG" });
+        trans_tbl[14] = 'G';
+    } else if (table != "11") {
+        std::cerr << "\nError: unsupported translation table " << table << ".\n\n"
+                  << "Genetic code options: \n\n 1  - Standard\n"
+                  << " 4  - Mycoplasma, Spiroplasma\n"
+                  << " 11 - Bacteria, Archaea\n"
+                  << " 15 - Blepharisma Nuclear\n"
+                  << " 16 - Chlorophycean Mitochondria\n"
+                  << " 25 - Candidate Division SR1, Gracilibacteria\n\n"
+                  << "Please see https://www.ddbj.nig.ac.jp/ddbj/geneticcode-e.html.\n";
+        return 1;
+    }
+    if (!QUIET) std::cerr << "Translation Table:" << std::setw(31) << table << '\n';
+
     size_t total_len = 0;
     float gc_cont = 0.0;
 
     /* extract all the orfs */
     bool circ = (bool) args.count("circ");
+    if (!QUIET) std::cerr << "Topology: " << std::setw(40) << (circ ? "Circular\n" : "Linear\n");
     bio::orf_array orfs;
     for (int i = 0; i < scaffolds.size(); i ++) {
         const auto sublen = scaffolds[i].sequence.length();
@@ -238,8 +275,10 @@ int main(int argc, char *argv[]) {
     }
 
     /* calculate basic genome stats */
-    gc_cont /= total_len;
+    gc_cont /= total_len; if (total_len <= 150000) W = 0.75F;
+    bool training = args["proc"].as<std::string>() != "meta";
     if (!QUIET) {
+        std::cerr << "Procedure: " << std::setw(39) << (training ? "Single\n" : "Meta\n");
         std::cerr << "Genome Size: " << std::setw(33) << total_len << " bp\n";
         std::cerr << "G+C Content: " << std::setw(34) << std::fixed << std::setprecision(2) 
                   << gc_cont * 100 << " % \n";
@@ -261,17 +300,14 @@ int main(int argc, char *argv[]) {
     }
 
     /* convert orfs to zcurve params */
-    float *params = NEW float[DIM_S*n_orfs];
+    float *params = NEW float[DIM_A*n_orfs];
     if (params == nullptr) {
         std::cerr << MEM_ERR_INFO;
         return 1;
     }
-    encoding::encode_orfs(orfs, params, 3);
+    encoding::encode_orfs(orfs, params, 3, false);
 
-    /* load pre-trained models and calculate scores */
-    if (!model::init_models()) return 1;
-    if(!QUIET) std::cerr << "Loaded Model:" << std::setw(37) << "Prokaryota\n";
-    bool training = args["proc"].as<std::string>() != "meta";
+    /* calculate heuristic model scores */
     float *i_scores = NEW float[n_orfs]();
     if (i_scores == nullptr) {
         std::cerr << MEM_ERR_INFO;
@@ -285,7 +321,6 @@ int main(int argc, char *argv[]) {
         if (!QUIET) std::cerr << "\rInitialization:" << std::setw(32) << (int)(i*1.67) << " %";
         off += gc_intv_count[i];
     }
-
     /* revise gene starts*/
     bool flag = !(bool) args.count("bypass");
     if (flag) {
@@ -309,7 +344,6 @@ int main(int argc, char *argv[]) {
                 }
             }
         }
-        STARTS.push_back("CTG");
         if (params == nullptr && n_seeds >= MIN_MARKOV_SET) {
             params = NEW float[TIS_S];
             if (params == nullptr) {
@@ -324,14 +358,14 @@ int main(int argc, char *argv[]) {
                                           << "Round #" + std::to_string(round);
                     model::mm_train(seeds, order, params, STARTS, table, pFU, pFD, max_alter);
                     float ratio = model::mm_revise(seeds, order, params, pFU, pFD, max_alter, minlen);
-                    if (ratio > 0.99) break;
+                    if (ratio > 0.9) break;
                 }
             }
             model::mm_revise(orfs, 2, params, pFU, pFD, max_alter, minlen);
         } else if (params != nullptr) {
             model::mm_revise(orfs, 2, params, pFU, pFD, max_alter, minlen);
         } else {
-            model::mm_revise(orfs, 2, tis_params, 0.83118, 5.16882, 7, minlen);
+            model::mm_revise(orfs, 2, tis_params, 0.90291, 5.09709, 7, minlen);
             if (!QUIET) std::cerr << "\rRevising TIS Model ..." << std::setw(27) << "Skipped";
         }
         if (params && !model_file.empty()) {
@@ -347,10 +381,10 @@ int main(int argc, char *argv[]) {
         std::cerr << MEM_ERR_INFO;
         return 1;
     }
-    float mins[DIM_S], maxs[DIM_S];
+    float mins[DIM_A], maxs[DIM_A];
     svm_model* cds_model = nullptr;
     if (training) {
-        encoding::encode_orfs(orfs, params, 3);
+        encoding::encode_orfs(orfs, params, 3, true);
         std::string model_file;
         if (args.count("train")) {
             model_file = args["train"].as<std::string>();
@@ -364,12 +398,12 @@ int main(int argc, char *argv[]) {
                     delete cds_model;
                     cds_model = nullptr;
                 } else {
-                    encoding::minmax_scale(params, n_orfs, DIM_S, mins, maxs);
+                    encoding::minmax_scale(params, n_orfs, DIM_A, mins, maxs);
                 }
             }
         }
         if (cds_model == nullptr) {
-            cds_model = model::rbf_train(params, n_orfs, DIM_S, i_scores, mins, maxs);
+            cds_model = model::rbf_train(params, n_orfs, DIM_A, i_scores, mins, maxs);
         }
         // predict scores
         if (cds_model) {
@@ -377,14 +411,14 @@ int main(int argc, char *argv[]) {
                 #pragma omp parallel for
             #endif
             for (int i = 0; i < n_orfs; i ++) {
-                d_scores[i] = svm_predict_score(cds_model, params + i*DIM_S, DIM_S);
+                d_scores[i] = svm_predict_score(cds_model, params + i*DIM_A, DIM_A);
             }
             if (!model_file.empty()) {
                 bio_io::write_model(cds_model, mins, maxs, model_file);
             }
         }
         if (!QUIET) std::cerr << std::setw(28) << (cds_model ? "Done\n" : "Skipped\n");
-    } else { if (!QUIET) std::cerr << std::setw(28) << "Bypassed\n"; W = 1.5; }
+    } else { if (!QUIET) std::cerr << std::setw(28) << "Bypassed\n"; W=1.5F; }
 
     /* classifying orfs and selection of seed orfs */
     auto thres = args["thres"].as<float>();
@@ -402,7 +436,7 @@ int main(int argc, char *argv[]) {
     delete[] i_scores;
     delete[] params;
 
-    /* check overprinted genes */
+    /* check overlapped genes */
     float min_ratio = args["ratio"].as<float>();
     int min_olen = (int) args["minolen"].as<uint32_t>();
     if (min_ratio < 0.0 || min_ratio > 1.0) {
@@ -414,7 +448,7 @@ int main(int argc, char *argv[]) {
         for (int j = i + 1; j < num_putative; j ++) {
             bio::orf &gene_1 = putative[i];
             bio::orf &gene_2 = putative[j];
-            op_type type = bio_util::check_overprint(gene_1, gene_2, min_ratio, min_olen);
+            op_type type = bio_util::check_overlap(gene_1, gene_2, min_ratio, min_olen);
             if (type != op_type::DISJOINT ) {
                 op_genes.push_back(gene_1);
                 op_genes.push_back(gene_2);
@@ -436,7 +470,7 @@ int main(int argc, char *argv[]) {
         }
     });
     std::string date = format_date(std::chrono::system_clock::now());
-    bio_io::write_result(putative, date, circ, output, format);
+    bio_io::write_result(putative, date, circ, table, output, format);
 
     /* write protein sequences */
     if (args.count("faa")) {
@@ -450,20 +484,20 @@ int main(int argc, char *argv[]) {
         if(!bio_io::write_fna(putative, fna)) return 1;
     }
 
-    /* write overprinted gene coords */
-    if (args.count("overprint")) {
-        auto overprint = args["overprint"].as<std::string>();
-        if(!bio_io::write_overprint(op_genes, min_ratio, min_olen, overprint)) 
+    /* write overlapped gene coords */
+    if (args.count("overlap")) {
+        auto overlap = args["overlap"].as<std::string>();
+        if(!bio_io::write_overlap(op_genes, min_ratio, min_olen, overlap)) 
             return 1;
     }
 
-    /* write overprinted gene proteins */
+    /* write overlapped gene proteins */
     if (args.count("amino")) {
         auto amino = args["amino"].as<std::string>();
         if(!bio_io::write_faa(op_genes, amino)) return 1;
     }
 
-    /* write overprinted gene nucleotide sequences */
+    /* write overlapped gene nucleotide sequences */
     if (args.count("nucl")) {
         auto nucl = args["nucl"].as<std::string>();
         if(!bio_io::write_fna(op_genes, nucl)) return 1;
@@ -486,7 +520,7 @@ std::string format_date(const std::chrono::system_clock::time_point& tp) {
     
     // Month abbreviations
     const char* months[] = {"JAN", "FEB", "MAR", "APR", "MAY", "JUN", 
-                           "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"};
+                            "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"};
     oss << months[tm_ptr->tm_mon] << '-';
     
     oss << (tm_ptr->tm_year + 1900);

@@ -118,7 +118,7 @@ def iter_train(
     max_iter: int = 20,
     up_thres: float = 0.7,
     down_thres: float = 0.31,
-    ratio_thres: float = 8.0
+    ratio_thres: float = 10.0
 ):
     """
     Iteratively train an SVM classifier to label ORFs as positive or negative.
@@ -158,7 +158,7 @@ def iter_train(
                              np.zeros(len(neg_features))], axis=0)
     scaler = StandardScaler()
     data_scaled = scaler.fit_transform(data)
-    svm = SVC(kernel='rbf', C=10.0).fit(data_scaled, labels)
+    svm = SVC(kernel='rbf', class_weight='balanced').fit(data_scaled, labels)
     scores = sigmoid(svm.decision_function(scaler.transform(features)))
     pos_in = np.where(scores > up_thres)[0]
     neg_in = np.where(scores <= down_thres)[0]
@@ -188,6 +188,7 @@ def iter_train(
         if should_break:
             print(f"Converged after {i+1} iterations.")
             break
+    pos_in = np.where(scores > 0.55)[0]
     return pos_in, neg_in, scaler, svm
 
 def to_gff(
@@ -328,7 +329,7 @@ def main():
     # Cluster long ORFs using K-means
     if not args.quiet:
         print(f"Clustering long ORFs ...")
-    kmeans = KMeans(n_clusters=args.cluster, random_state=42)
+    kmeans = KMeans(n_clusters=args.cluster, random_state=42, n_init=100, max_iter=600)
     labels = kmeans.fit_predict(long_features_scaled)
     max_avg_len, max_cluster, positive_orfs = 0, None, None
     for cluster in range(args.cluster):

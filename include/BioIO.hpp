@@ -2,9 +2,9 @@
  * @brief       Bioinformatics I/O operations. 
  * 
  * @author      Zetong Zhang, Yan Lin, Feng Gao
- * @version     1.0.3
+ * @version     1.0.5
  * @date        2025-11-30
- * @modified    2026-03-20
+ * @modified    2026-03-22
  * @license     GNU GPLv3
  * @contact     ylin@tju.edu.cn | fgao@tju.edu.cn
  */
@@ -27,7 +27,7 @@
 /* The buffer size for file reading. */
 #define BUFF_SIZE 65536
 /* The version info of the software. */
-#define VERSION  "CLOVERS_v1.0.3"
+#define VERSION  "CLOVERS_v1.0.5"
 /* The namespace for bioinformatics I/O operations. */
 namespace bio_io {
     /**
@@ -59,7 +59,7 @@ namespace bio_io {
      *         false If the file is not successfully written.
      */
     bool write_result(bio::orf_array &orfs, const std::string &date, bool is_circ, 
-                      const std::string &filename, const std::string &format);
+         std::string &table, const std::string &filename, const std::string &format);
     /** 
      * @brief   Write the translated proteins to a FASTA file.
      * 
@@ -79,16 +79,16 @@ namespace bio_io {
      */
     bool write_fna(bio::orf_array &orfs, const std::string &filename);
     /** 
-     * @brief   Write predicted overprinted genes to a GFF3 file.
+     * @brief   Write predicted overlapped genes to a GFF3 file.
      * 
-     * @param orfs      The overprinted genes.
-     * @param ratio     The ratio of the overprinted length to the shorter ORF.
-     * @param min_olen  The minimum overprinted length between two ORFs.
+     * @param orfs      The overlapped genes.
+     * @param ratio     The ratio of the overlapped length to the shorter ORF.
+     * @param min_olen  The minimum overlapped length between two ORFs.
      * @param filename  The path to the output file.
      * @return true If the file is successfully written.
      *         false If the file is not successfully written.
      */
-    bool write_overprint(bio::orf_array &orfs, const float ratio, const int min_olen, const std::string &filename);
+    bool write_overlap(bio::orf_array &orfs, const float ratio, const int min_olen, const std::string &filename);
     /** 
      * @brief   Write the CDS model (RBF-SVM) to a file.
      * 

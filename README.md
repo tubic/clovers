@@ -16,7 +16,7 @@
 ![GitHub release](https://img.shields.io/github/v/release/zetong-zhang/CLOVERS)
 ![GitHub downloads](https://img.shields.io/github/downloads/zetong-zhang/CLOVERS/total)
 
-Ab initio prediction of overprinted genes using the Z-curve method
+Accurate *ab initio* prediction of genes and with CLOVERS
 
 ## Contents
 - **[Overview](#overview)** - Project introduction and features
@@ -33,18 +33,19 @@ Ab initio prediction of overprinted genes using the Z-curve method
 - **[License](#license)** - GNU General Public License v3.0
 
 ## Overview
-CLOVERS is an ab initio gene finder that utilizes the Z-curve method for robust gene prediction on prokaryotic and phage genomes. Its novel technical approach gives it an advantage in detecting more smaller overprinted genes, which are often missed by other tools.
+CLOVERS is an novel ab initio gene finder that utilizes the Z-curve method for robust protein-coding gene prediction on prokaryotic and phage genomes. Its novel technical approach gives it an advantage in detecting more overlapped genes - which are often missed by other state-of-the-art tools - while remaining highly competitive in overall gene recognition.
 
 ## Setup
 ### Windows/Linux (x86_64)
 Download the latest precompiled binary file from the [release page](https://github.com/zetong-zhang/CLOVERS/releases), and decompress it to the directory of your choice.
+
 ### Other Operating Systems
-Download and compile the source code yourself.
+Clone the repository and compile the source code yourself.  
 
 ```bash
 git clone https://github.com/zetong-zhang/clovers.git
 cd clovers
-make  # use mingw32-make on windows (MinGW64)
+make  # use mingw32-make on windows (MinGW)
 ```
 *Note:*  
 (1) If your system doesn't have zlib installed, or you just don't want to use zlib, just remove the `-DZLIB` and `-lz` option in `CXXFLAGS`;   
@@ -54,6 +55,7 @@ make  # use mingw32-make on windows (MinGW64)
 ## Usage
 ### Quick Start
 We recommend configure the environment variable `PATH` to include the directory of the executable binary file, such that you can run `clovers` directly in the terminal.
+
 ```bash
 clovers -i example.fasta -o example.gff -c -f gff
 ```
@@ -65,10 +67,13 @@ clovers.exe [OPTION...]
 
 #### General Options
 * `-h, --help`  
-Print help menu and exit. If no option is specified, print the help menu and wait.  
+Print help menu and exit. If no option is specified (only `./clovers` was entered or double-clicked the icon), print the help menu and wait for the user to press the Enter key or Ctrl+C to exit.
 
 * `-q, --quiet`  
 Run quietly with no stderr output.  
+
+* `-v, --version`
+Print version info and exit.
 
 * `-T, --threads`  
 Number of threads to use. Please set as a positive integer. (default: all)
@@ -91,7 +96,9 @@ Write nucleotide sequences of genes to the selected file.
 
 #### CLOVERS Options  
 * `-g, --table`  
-Specify a genetic codon table to use. (default: 11)
+Specify a genetic codon table to use (1, 4, 11, 15, 16, 25 or auto). (default: 11)  
+
+  **Note:** Auto-selection of codon table function can only determine whether TGA or TAG have been reprogrammed into sense codons.
 
 * `-l, --minlen`  
 Specify the mininum length (nt) of ORFs. (default: 90)
@@ -120,19 +127,19 @@ Write (if none exists) or use the specified TIS model file.
 
 #### GOP-Reporter options:  
 * `-L, --minolen`  
-Specify the mininum overprinted length between two ORFs. (default: 120)
+Specify the mininum overlapped length between two ORFs. (default: 120)
 
-* `-O, --overprint`  
-Write overprinted genes to the selected file (GFF3 format).
+* `-O, --overlap`  
+Write overlapped genes to the selected file (GFF3 format).
 
 * `-A, --amino`  
-Write protein translations of overprinted genes to the selected file.
+Write protein translations of overlapped genes to the selected file.
 
 * `-D, --nucl`  
-Write nucleotide sequences of overprinted genes to the selected file.
+Write nucleotide sequences of overlapped genes to the selected file.
 
 * `-M, --ratio`  
-Specify minimum overlap ratio for overprinted genes. (default: 0.6)
+Specify minimum overlap ratio for overlapped genes. (default: 0.6)
 
 ## Examples
 ### Basic Usage
@@ -145,6 +152,9 @@ clovers -i circular.fasta -o output.gff -c
 
 # Use a custom translation table (e.g., table 4 for Mycoplasma)
 clovers -i input.fasta -o output.gff -g 4
+
+# Use auto-detection of translation table
+clovers -i input.fasta -o output.gff -g auto
 ```
 
 ### Advanced Usage
@@ -152,8 +162,8 @@ clovers -i input.fasta -o output.gff -g 4
 # Generate protein and nucleotide sequences
 clovers -i input.fasta -o output.gff -a proteins.faa -d genes.fna
 
-# Detect overprinted genes and their sequences
-clovers -i input.fasta -o output.gff -O overprint.gff -A overprint.faa -D overprint.fna
+# Detect overlapped genes and their sequences
+clovers -i input.fasta -o output.gff -O overlap.gff -A overlap.faa -D overlap.fna
 
 # Use multiple threads for faster processing
 clovers -i large.fasta -o output.gff -T 8
@@ -186,13 +196,26 @@ ORIGIN
           . . .
 //
 ```
-
+Or minimal EMBL format input (stdout or file) or their compressed versions (gzip) with content like follow:
+```
+ID   NC_000913.3
+XX
+FH   Key             Location/Qualifiers
+XX
+SQ   
+     agcttttcat tctgactgca acgggcaata tgtctctgtg tggattaaaa aaagagtgtc        60
+     tgatagcagc ttctgaactg gttacctgcc gtgagtaaat taaaatttta ttgacttagg       120
+     tcactaaata ctttaaccaa tataggcata gcgcacagac agataaaaat tacagagtac       180
+     . . .
+//
+```
 ## Output
 - **GFF/GenBank/MED files**: Primary annotation results containing gene locations, scores and other attributes
 
     **GFF File Example:**
     ```
     ##gff-version 3
+    # Translation Table: 11
     # NC_000913.3	4641652 bp	linear	UNA	10-MAR-2026
     NC_000913.3	CLOVERS_v1.0.1	CDS	337	2799	0.974	+	0	ID=orf000001
     NC_000913.3	CLOVERS_v1.0.1	CDS	2801	3733	0.968	+	0	ID=orf000002
@@ -204,8 +227,10 @@ ORIGIN
     DEFINITION  NC_000913.3
     FEATURES             Location/Qualifiers
         CDS             337..2799
+                        /transl_table=11
                         /note="version=CLOVERS_v1.0.1;ID=orf000001;score=0.974"
         CDS             2801..3733
+                        /transl_table=11
                         /note="version=CLOVERS_v1.0.1;ID=orf000002;score=0.968"
     . . .
     ORIGIN
@@ -213,6 +238,8 @@ ORIGIN
     ```
     **MED File Example:**
     ```
+    ## MED
+    # Translation Table: 11
     # NC_000913.3	4641652 bp	linear	UNA	10-MAR-2026
     337 2799	+
     2801 3733	+
@@ -245,7 +272,7 @@ ORIGIN
     . . .
     ```
 ## Performance
-CLOVERS is tested on a variety of reference genomes with MS-verified and RefSeq homology-supported gene annotations to compare its performance with other tools (Prodigal, GeneMarkS-2+, Glimmer, ZCURVE). The main performance metrics include sensitivity (for both common and overprinted genes), specificity and processing speed. 
+CLOVERS is tested on a variety of reference genomes with MS-verified and RefSeq homology-supported gene annotations to compare its performance with other tools (Prodigal, GeneMarkS-2+, Glimmer, ZCURVE). The main performance metrics include sensitivity (for both common and overlapped genes), specificity and processing speed. 
 
 ### Sensitivity & Specificity
 Sensitivity is the proportion of correctly predicted genes out of all evidenced genes, while specificity is measured by the false positive count on simulated genomes that were expected to contain no coding sequences.  
@@ -264,7 +291,7 @@ On July 21, 2025, high-quality assembled genome sequences of 1,789 bacteria and 
 
 **Processing Speed**
 
-Benchmarking was conducted using an Intel Core i7-13620H (16 threads).
+Benchmarking was conducted using an Intel Core i7-13620H (16 threads, auto-selection of codon table **OFF**).
 
 ![proc_speed](.figures/Process_Speed.png)
 
@@ -305,7 +332,7 @@ clovers/
 ```
 
 ## Citation
-Zetong Zhang, Yan Lin*, Feng Gao*. Ab initio prediction of overprinted genes using the Z-curve method.
+Zetong Zhang, Yan Lin*, Feng Gao*. Ab initio prediction of genes in genes using the Z-curve method.
 
 ## Server
 - **CLOVERS Server**: Free available at [https://tubic.tju.edu.cn/clovers/](https://tubic.tju.edu.cn/clovers/).

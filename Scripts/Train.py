@@ -195,13 +195,13 @@ def load_pair_datasets(
     labels = []
     # Load positive sequences
     pos_sequences = [str(record.seq) for record in SeqIO.parse(pos_file, 'fasta')]
-    pos_features = encode(pos_sequences)
+    pos_features = encode(pos_sequences)[:, :189]
     labels.extend([1] * len(pos_features))
     if not quiet:
         print(f"Loaded {len(pos_features)} positive sequences.")
     # Load negative sequences
     neg_sequences = [str(record.seq) for record in SeqIO.parse(neg_file, 'fasta')]
-    neg_features = encode(neg_sequences)
+    neg_features = encode(neg_sequences)[:, :189]
     labels.extend([0] * len(neg_features))
     if not quiet:
         print(f"Loaded {len(neg_features)} negative sequences.")

@@ -28,8 +28,10 @@ static char COMP[] = {
     'r', 't'
 };
 std::map<char, int> base2off = {
-    { 'T', 0 }, { 'C', 1 }, { 'A', 2 }, { 'G', 3 },
-    { 't', 0 }, { 'c', 1 }, { 'a', 2 }, { 'g', 3 }
+    { 'T', 0 }, { 'C', 1 }, { 'A', 2 }, { 'G', 3 }, 
+    { 't', 0 }, { 'c', 1 }, { 'a', 2 }, { 'g', 3 }, 
+    // Other bases
+    { 'U', 0 }, { 'u', 0 }, { 'Z', 2 }, { 'z', 2 }
 };
 /*  codon to amino acid map */
 char trans_tbl[64] = {
@@ -87,23 +89,21 @@ int bio_util::match_codon(
     return -1;
 }
 
-char *bio_util::gene2protein(bio::orf &gene, int prolen) {
+char *bio_util::gene2protein(bio::orf &gene, int prolen) noexcept {
     char *protein = NEW char[prolen+1]; 
     if (!protein) return nullptr;
-    try {
-        for (int i = 0; i < prolen; i ++) {
-            if (!(gene.partial5 || i)) {
-                protein[0] = 'M';
-                continue;
-            }
-            int f = base2off.at(gene.seq[i*3+0]);
-            int s = base2off.at(gene.seq[i*3+1]);
-            int t = base2off.at(gene.seq[i*3+2]);
-            protein[i] = trans_tbl[f*16+s*4+t];
+    for (int i = 0; i < prolen; i ++) {
+        if (!(gene.partial5 || i)) {
+            protein[0] = 'M';
+            continue;
         }
-    } catch (const std::out_of_range& e) {
-        delete[] protein;
-        return nullptr;
+        int off = 0;
+        for (int j = 0; j < 3; j ++) {
+            char b = gene.seq[i*3+j];
+            if (base2off.count(b)) off += (1<<(4-2*j))*base2off[b];
+            else { off = -1; break; }
+        }
+        protein[i] = off >= 0 ? trans_tbl[off] : 'X';
     }
     protein[prolen] = '\0';
     return protein;
@@ -121,23 +121,31 @@ static int refine_start(int_array &start_locs, int_array &start_types) {
     return t_start;
 }
 
-op_type bio_util::check_overprint(const bio::orf &a, const bio::orf &b, float ratio, int min_olen) noexcept {
-    if (a.host == b.host && a.strand == b.strand) {
-        int a_end = a.end, b_end = b.end;
-        // 我是德布罗意的六世徒孙
-        if (a_end < a.t_start) a_end += a.host_len;
-        if (b_end < b.t_start) b_end += b.host_len;
-        int olen = 0;
-        if (a_end > b.t_start && b_end > a.t_start)
-            olen = std::min(a_end, b_end) - std::max(a.t_start, b.t_start);
-        if (olen >= min_olen) {
-            if ((olen == a.len || olen == b.len)) 
-                return op_type::INCLUDE;
-            else if ((olen / (float)std::min(a.len, b.len)) >= ratio) 
-                return op_type::INTERSECT;
-        }
+op_type bio_util::check_overlap(const bio::orf &a, const bio::orf &b, float ratio, int min_olen) noexcept {
+    int host_len = a.host_len; // b.host_len;
+    int a_start, a_end, b_start, b_end;
+    int olen = 0;
+
+    if (a.host != b.host) goto OUTTER;
+
+    if (a.strand == '+') a_start = a.t_start, a_end = a.end;
+    else a_start = host_len - a.end, a_end = host_len - a.t_start;
+    if (b.strand == '+') b_start = b.t_start, b_end = b.end;
+    else b_start = host_len - b.end, b_end = host_len - b.t_start;
+
+    if (a_end < a_start) a_end += host_len;
+    if (b_end < b_start) b_end += host_len;
+    
+    if (a_end > b_start && b_end > a_start)
+        olen = std::min(a_end, b_end) - std::max(a_start, b_start);
+    if (olen >= min_olen) {
+        if ((olen == a.len || olen == b.len)) 
+            return op_type::INCLUDE;
+        else if ((olen / (float)std::min(a.len, b.len)) >= ratio) 
+            return op_type::INTERSECT;
     }
-    return op_type::DISJOINT;
+
+    OUTTER: return op_type::DISJOINT;
 }
 /**
  * @brief   splice the edge of an ORF.

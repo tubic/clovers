@@ -2,9 +2,9 @@
  * @brief   Utility functions for bioinformatics.
  * 
  * @author      Zetong Zhang, Yan Lin, Feng Gao
- * @version     1.0.3
+ * @version     1.0.5
  * @date        2025-11-30
- * @modified    2026-03-09
+ * @modified    2026-03-27
  * @license     GNU GPLv3
  * @contact     ylin@tju.edu.cn | fgao@tju.edu.cn
  */
@@ -77,16 +77,16 @@ namespace bio_util {
      * @param   prolen length of the protein sequence.
      * @return  char* protein sequence.
      */
-    char *  gene2protein(bio::orf &orf, int prolen);
+    char *  gene2protein(bio::orf &orf, int prolen) noexcept;
     /**
-     * @brief   check if two ORFs overprint.
+     * @brief   check if two ORFs overlap.
      * 
      * @param   a ORF a.
      * @param   b ORF b.
-     * @param   min_olen minimum overprint length.
-     * @return  op_type overprint type.
+     * @param   min_olen minimum overlap length.
+     * @return  op_type overlap type.
      */
-    op_type check_overprint(const bio::orf &a, const bio::orf &b, float ratio, int min_olen) noexcept;
+    op_type check_overlap(const bio::orf &a, const bio::orf &b, float ratio, int min_olen) noexcept;
 }
 
 #endif

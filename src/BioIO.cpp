@@ -160,6 +160,7 @@ static bool read_stream(
  * 
  * @param handle    The output stream.
  * @param orfs      The ORF array to be written.
+ * @param table     The genetic table used.
  * @param is_circ   Whether the scaffold is circular.
  * @param format    The format of the output file.
  * @return true If the file is successfully written.
@@ -169,12 +170,13 @@ static bool write_stream(
     std::ostream &handle,
     bio::orf_array &orfs,
     const std::string &date,
-    bool is_circ,
+    std::string &table, bool is_circ,
     const std::string &format
 ) {
     int count = (int) orfs.size();
     if (format == "gff") {
         handle << "##gff-version 3 \n";
+        handle << "# Translation Table: " << table << '\n';
         char *last_scaffold = nullptr;
         for (int i = 0, j = 0; i < count; i ++) {
             // seqid + source + type
@@ -241,7 +243,8 @@ static bool write_stream(
                 handle << rend;
             }
             if (neg_strand) handle << ")";
-            handle << "\n                     /note=\"version=" << VERSION 
+            handle << "\n                     /transl_table=" << table
+                   << "\n                     /note=\"version=" << VERSION 
                    << ";ID=orf" << std::setw(6) << std::setfill('0') << (++j)
                    << ";score=" << std::fixed << std::setprecision(3) 
                    << orfs[i].score << "\"\n";
@@ -249,6 +252,7 @@ static bool write_stream(
         if (count > 0) handle << "ORIGIN\n//\n";
         return true;
     } else if (format == "med") {
+        handle << "## MED\n" << "# Translation Table: " << table << '\n';
         char *last_scaffold = nullptr;
         for (int i = 0, j = 0; i < count; i ++) {
             if (last_scaffold != orfs[i].host) {
@@ -314,18 +318,18 @@ bool bio_io::read_source(
 bool bio_io::write_result(
     bio::orf_array &orfs, 
     const std::string &date,
-    bool is_circ,
+    bool is_circ, std::string &code,
     const std::string &filename,
     const std::string &format
 ) {
-    if (filename == "-") return write_stream(std::cout, orfs, date, is_circ, format);
+    if (filename == "-") return write_stream(std::cout, orfs, date, code, is_circ, format);
     else {
         std::ofstream handle(filename);
         if (!handle.is_open()) {
             std::cerr << "\nError: failed to open " << filename << '\n';
             return false;
         }
-        return write_stream(handle, orfs, date, is_circ, format);
+        return write_stream(handle, orfs, date, code, is_circ, format);
     }
 }
 
@@ -414,8 +418,8 @@ bool bio_io::write_model(
     }
     try {
         // write scaler
-        outfile.write((char *) mins, DIM_S * sizeof(float));
-        outfile.write((char *) maxs, DIM_S * sizeof(float));
+        outfile.write((char *) mins, DIM_A * sizeof(float));
+        outfile.write((char *) maxs, DIM_A * sizeof(float));
         // write gamma
         float gamma = model->param.gamma;
         outfile.write((char*) &gamma, sizeof(float));
@@ -425,7 +429,7 @@ bool bio_io::write_model(
         // write support vectors
         for (int i = 0; i < n_sv; i ++) {
             float *sv = model->SV[i];
-            outfile.write((char*) sv, DIM_S * sizeof(float));
+            outfile.write((char*) sv, DIM_A * sizeof(float));
         }
         // write coefficients
         for (int i = 0; i < n_sv; i ++) {
@@ -476,24 +480,25 @@ bool bio_io::read_model(
     }
     try {
         // read scaler
-        infile.read((char *) mins, DIM_S * sizeof(float));
-        infile.read((char *) maxs, DIM_S * sizeof(float));
+        infile.read((char *) mins, DIM_A * sizeof(float));
+        infile.read((char *) maxs, DIM_A * sizeof(float));
         // read gamma
         float gamma;
         infile.read((char*) &gamma, sizeof(float));
         model->param.gamma = gamma;
+        model->param.kernel_type = RBF;
         // read number of support vectors
         int n_sv;
         infile.read((char*) &n_sv, sizeof(int));
         model->l = n_sv;
         // read support vectors
-        float *sv_cache = NEW float[n_sv * DIM_S];
+        float *sv_cache = NEW float[n_sv * DIM_A];
         if (!sv_cache) return false;
-        infile.read((char*) sv_cache, n_sv * DIM_S * sizeof(float));
+        infile.read((char*) sv_cache, n_sv * DIM_A * sizeof(float));
         model->SV = NEW float*[n_sv];
         if (!model->SV) return false;
         for (int i = 0; i < n_sv; i ++) {
-            model->SV[i] = sv_cache + i * DIM_S;
+            model->SV[i] = sv_cache + i * DIM_A;
         }
         // read coefficients
         model->sv_coef = NEW float*[1];
@@ -532,7 +537,7 @@ bool bio_io::read_model(
     return true;
 }
 
-bool bio_io::write_overprint(
+bool bio_io::write_overlap(
     bio::orf_array &orfs,
     const float ratio,
     const int min_olen,
@@ -547,7 +552,7 @@ bool bio_io::write_overprint(
     int count = (int) orfs.size() / 2;
     for (int i = 0; i < count; i ++) {
         bio::orf &gene_1 = orfs[2*i], &gene_2 = orfs[2*i+1];
-        op_type type = bio_util::check_overprint(gene_1, gene_2, ratio, min_olen);
+        op_type type = bio_util::check_overlap(gene_1, gene_2, ratio, min_olen);
         handle << "# index=" << std::setw(4) << std::setfill('0') << (i+1) << ";type=" 
                << (type == op_type::INTERSECT ? "INTERSECT\n" : "INCLUDE\n");
         int rstart, rend, host_len;
