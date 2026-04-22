@@ -1,6 +1,12 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## [1.0.6] - 2026-04-22
+
+### Changed
+- Disable the TriTISA trainer in the metagenomic mode.
+- Force the output of partial-5'-end ORFs with scores >= threshold for linear genomes. 
+
 ## [1.0.5] - 2026-04-03
 
 ### Added

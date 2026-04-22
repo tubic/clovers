@@ -2,9 +2,9 @@
  * @brief       Model functions for Z-curve.
  * 
  * @author      Zetong Zhang, Yan Lin, Feng Gao
- * @version     1.0.5
+ * @version     1.0.6
  * @date        2025-11-30
- * @modified    2026-03-27
+ * @modified    2026-04-22
  * @license     GNU GPLv3
  * @contact     ylin@tju.edu.cn | fgao@tju.edu.cn
  */
@@ -22,7 +22,11 @@
 // The downstream sampling region of TIS
 #define D_REGION  15
 // The upper limit for threshold of seed ORFs
-#define UP_PROBA  0.6
+#define UP_PROBA  0.60
+// The lower limit for threshold of seed ORFs
+#define DW_PROBA  0.05
+// Epsilon value (infinite small)
+#define EPSILON   1E-6
 
 #include <iostream>
 #include <fstream>
@@ -32,10 +36,12 @@
 #include <algorithm>
 #include <assert.h>
 #include "BioUtil.hpp"
-#include "svm.h"
+#include "svm.hpp"
 
 /* number of TIS model params */
 const int TIS_S = ((U_REGION+D_REGION)*64+16)*3;
+// Minimum set size for RBF-SVM training.
+const int MIN_RBFSVM_SET = 5;
 /* mininum set size for Markov training */
 const int MIN_MARKOV_SET = 3;
 /* SVM hyper-params. */

@@ -275,7 +275,7 @@ void bio_util::get_orfs(
                     } else {
                         int t_start = ps0;
                         int seqlen = end - t_start;
-                        if (start < 0 && seqlen >= minlen) {
+                        if (seqlen >= minlen) {
                             char *pstr = genome + t_start;
                             float gc_frac = gc_fraction(pstr, seqlen);
                             char strand = neg_strand ? '-' : '+';

@@ -2,7 +2,7 @@
  * @brief       Bioinformatics data structures. 
  * 
  * @author      Zetong Zhang, Yan Lin, Feng Gao
- * @version     1.0.5
+ * @version     1.0.6
  * @date        2025-11-30
  * @modified    2026-02-28
  * @license     GNU GPLv3
@@ -14,8 +14,6 @@
 #define NEW new (std::nothrow)
 /* memory error info */
 #define MEM_ERR_INFO "\nError: memory error (cannot alloc memory)\n"
-/* epsilon value for floating point comparisons. */
-#define EPSILON 1E-12
 
 #include <string>
 #include <vector>

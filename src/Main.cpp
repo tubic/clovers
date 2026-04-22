@@ -4,9 +4,9 @@
  *                                                         *    
  *   @copyright: (C) 2003-2026 TUBIC, Tianjin University   *
  *   @author:    Zetong Zhang, Yan Lin, Feng Gao           *
- *   @version:   1.0.5                                     *
+ *   @version:   1.0.6                                     *
  *   @date:      2025-11-30                                *
- *   @modified   2025-03-20                                *
+ *   @modified   2025-04-22                                *
  *   @license:   GNU GPLv3                                 *
  *   @contact:   ylin@tju.edu.cn | fgao@tju.edu.cn         *
  *                                                         *
@@ -80,7 +80,7 @@ int main(int argc, char *argv[]) {
     
     /* clovers parameters */
     options.add_options("CLOVERS")
-        ("g,table",    "Specify a translation table to use (1, 4, 11, 16, 25, auto).",
+        ("g,table",    "Specify a translation table to use (1, 4, 11, 15, 16, 25, auto).",
          cxxopts::value<std::string>()->default_value("11"))
 
         ("l,minlen",   "Specify the mininum length of ORFs.",
@@ -135,7 +135,7 @@ int main(int argc, char *argv[]) {
     /* show help information and exit with code 0 */
     if (argc <= 1 || args.count("help")) {
         std::cerr << "- - - - - - - - - - - - - - - - - - - - - - - - - - - -\n"
-                  << "PROTEIN-CODING GENE RECOGNITION SYSTEM OF CLOVERS 1.0.5\n\n"
+                  << "PROTEIN-CODING GENE RECOGNITION SYSTEM OF CLOVERS 1.0.6\n\n"
                   << "Copyright:  (C) 2003-2026 TUBIC,Tianjin University     \n"
                   << "Authors:    Zetong Zhang, Yan Lin*, Feng Gao*          \n"
                   << "Date:       November 30, 2025                          \n"
@@ -275,7 +275,7 @@ int main(int argc, char *argv[]) {
     }
 
     /* calculate basic genome stats */
-    gc_cont /= total_len; if (total_len <= 150000) W = 0.75F;
+    gc_cont /= total_len;
     bool training = args["proc"].as<std::string>() != "meta";
     if (!QUIET) {
         std::cerr << "Procedure: " << std::setw(39) << (training ? "Single\n" : "Meta\n");
@@ -313,7 +313,7 @@ int main(int argc, char *argv[]) {
         std::cerr << MEM_ERR_INFO;
         return 1;
     }
-    int off = 0;
+    int off = 0, npos = 0, nneg = 0;
     if (!QUIET) std::cerr << "Initialization:" << std::setw(34) << "0 %";
     for (int i = 0; i < N_MODELS; i ++) {
         int size = gc_intv_count[i];
@@ -321,9 +321,15 @@ int main(int argc, char *argv[]) {
         if (!QUIET) std::cerr << "\rInitialization:" << std::setw(32) << (int)(i*1.67) << " %";
         off += gc_intv_count[i];
     }
+    for (int i = 0; i < n_orfs; ++i) {
+        float s = i_scores[i];
+        if (s < DW_PROBA && s > EPSILON) nneg ++;
+        else if (s > UP_PROBA) npos ++;
+    }
+    W = (float)nneg/npos>=10 ? 1.25F-0.108F*std::log((float)nneg/npos) : 1.0F;
     /* revise gene starts*/
     bool flag = !(bool) args.count("bypass");
-    if (flag) {
+    if (flag && training) {
         if (!QUIET) std::cerr << "\nRevising TIS Model ..." << std::setw(27) << "Round #0";
         bio::orf_array seeds;
         for (int i = 0, j = 0; i < n_orfs; i ++) {
@@ -365,7 +371,7 @@ int main(int argc, char *argv[]) {
         } else if (params != nullptr) {
             model::mm_revise(orfs, 2, params, pFU, pFD, max_alter, minlen);
         } else {
-            model::mm_revise(orfs, 2, tis_params, 0.90291, 5.09709, 7, minlen);
+            model::mm_revise(orfs, 2, tis_params, 0.893, 5.107, 7, minlen);
             if (!QUIET) std::cerr << "\rRevising TIS Model ..." << std::setw(27) << "Skipped";
         }
         if (params && !model_file.empty()) {
@@ -402,7 +408,7 @@ int main(int argc, char *argv[]) {
                 }
             }
         }
-        if (cds_model == nullptr) {
+        if (!cds_model && W >= 0.8 && nneg >= MIN_RBFSVM_SET && npos >= MIN_RBFSVM_SET) {
             cds_model = model::rbf_train(params, n_orfs, DIM_A, i_scores, mins, maxs);
         }
         // predict scores
@@ -411,14 +417,14 @@ int main(int argc, char *argv[]) {
                 #pragma omp parallel for
             #endif
             for (int i = 0; i < n_orfs; i ++) {
-                d_scores[i] = svm_predict_score(cds_model, params + i*DIM_A, DIM_A);
+                d_scores[i] = svm_predict_score(cds_model, params + i*DIM_A, DIM_A) * W;
             }
             if (!model_file.empty()) {
                 bio_io::write_model(cds_model, mins, maxs, model_file);
             }
         }
         if (!QUIET) std::cerr << std::setw(28) << (cds_model ? "Done\n" : "Skipped\n");
-    } else { if (!QUIET) std::cerr << std::setw(28) << "Bypassed\n"; W=1.5F; }
+    } else { if (!QUIET) std::cerr << std::setw(28) << "Bypassed\n"; W*=1.5F; }
 
     /* classifying orfs and selection of seed orfs */
     auto thres = args["thres"].as<float>();

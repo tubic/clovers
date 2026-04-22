@@ -7,7 +7,7 @@
 #include <stdarg.h>
 #include <limits.h>
 #include <locale.h>
-#include "svm.h"
+#include "svm.hpp"
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -1974,7 +1974,6 @@ float svm_predict_score(const struct svm_model *model, const float *x, int dim) 
     int l = model->l;
     float *sv_coef = model->sv_coef[0];
     float sum = 0.0;
-
     for(int i = 0; i < l; i++) {
         float Kxi = Kernel::k_function(x, model->SV[i], model->param, dim);
         sum += sv_coef[i] * Kxi;
