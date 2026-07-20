@@ -1,70 +1,50 @@
 # CLOVERS Makefile
-# Ab initio prediction of overprinted genes using the Z-curve method
 
-# Compiler settings
 CXX := g++
-
-# Allow environment to override flags
 CXXFLAGS ?= -DZLIB -fopenmp -mavx -mfma -static -O3
 LDFLAGS ?= -lz
 
-# Append extra flags if provided
-CXXFLAGS += $(EXTRA_CXXFLAGS)
-LDFLAGS += $(EXTRA_LDFLAGS)
-
-# Directories
 SRC_DIR := src
 INC_DIR := include
-BIN_DIR := bin
 BUILD_DIR := build
 
-# Source files
-SOURCES := $(SRC_DIR)/Main.cpp \
-           $(SRC_DIR)/BioIO.cpp \
-           $(SRC_DIR)/BioUtil.cpp \
-           $(SRC_DIR)/Encoding.cpp \
-           $(SRC_DIR)/Model.cpp \
-           $(SRC_DIR)/svm.cpp
+# Object files (auto-derived from src/*.cpp, preserving filename casing)
+SRC_FILES := $(wildcard $(SRC_DIR)/*.cpp)
+OBJ_FILES := $(SRC_FILES:$(SRC_DIR)/%.cpp=$(BUILD_DIR)/%.o)
 
-# Object files
-OBJECTS := $(patsubst $(SRC_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(SOURCES))
+# Target executables (per-platform filenames)
+ifeq ($(OS),Windows_NT)
+    TARGET_FILES := clovers.exe labeler.exe
+    EXT := .exe
+    CLEAN_CMD := powershell -Command " \
+        Remove-Item -Force -ErrorAction SilentlyContinue clovers.exe, labeler.exe; \
+        Remove-Item -Recurse -Force -ErrorAction SilentlyContinue '$(BUILD_DIR)'"
+else
+    TARGET_FILES := clovers labeler
+    EXT :=
+    CLEAN_CMD := rm -f $(TARGET_FILES) && rm -rf $(BUILD_DIR)
+endif
 
-# Binary data file
-META_BIN := $(BIN_DIR)/meta.bin
-META_OBJ := $(BUILD_DIR)/meta.bin.o
+.PHONY: all clean rebuild
 
-# Target executable
-TARGET := clovers
+all: $(BUILD_DIR) $(TARGET_FILES)
 
-# Default target
-.PHONY: all clean
-
-all: $(BUILD_DIR) $(TARGET)
-
-# Create build directory
 $(BUILD_DIR):
 	mkdir $(BUILD_DIR)
 
-# Convert binary data to object file
-# Note: objcopy generates symbols based on the input file path.
-# For bin/meta.bin, it generates _binary_bin_meta_bin_start/end
-# We need to rename them to match the expected _binary_meta_bin_start/end
-$(META_OBJ): $(META_BIN)
-	objcopy --input binary --output elf64-x86-64 --binary-architecture i386:x86-64 $< $@
-	objcopy --redefine-sym _binary_bin_meta_bin_start=_binary_meta_bin_start $@
-	objcopy --redefine-sym _binary_bin_meta_bin_end=_binary_meta_bin_end $@
-
-# Compile source files
-$(BUILD_DIR)/%.o: $(SRC_DIR)/%.cpp
+# Compile any .cpp to .o (casing matches source filenames)
+$(OBJ_FILES): $(BUILD_DIR)/%.o: $(SRC_DIR)/%.cpp
 	$(CXX) $(CXXFLAGS) -I$(INC_DIR) -c $< -o $@
 
-# Link executable
-$(TARGET): $(META_OBJ) $(OBJECTS)
+# Per-target prerequisites
+clovers$(EXT): $(BUILD_DIR)/svm.o $(BUILD_DIR)/Clovers.o
+labeler$(EXT): $(BUILD_DIR)/svm.o $(BUILD_DIR)/Labeler.o
+
+# Shared link recipe
+$(TARGET_FILES):
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
 
-# Clean build files
 clean:
-	rm -rf $(BUILD_DIR) $(TARGET)
+	$(CLEAN_CMD)
 
-# Rebuild
 rebuild: clean all

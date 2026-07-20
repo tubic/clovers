@@ -8,7 +8,12 @@
 #include <limits.h>
 #include <locale.h>
 #include "svm.hpp"
-#ifdef _OPENMP
+
+#if defined(__AVX__)
+#include <immintrin.h>
+#endif
+
+#if defined(_OPENMP)
 #include <omp.h>
 #endif
 
@@ -1988,6 +1993,8 @@ static int max_line_len;
 
 void svm_free_model_content(svm_model* model_ptr) noexcept
 {
+	if (model_ptr == NULL) return;
+	 
 	if(model_ptr->free_sv && model_ptr->l > 0 && model_ptr->SV != NULL)
 		free((void *)(model_ptr->SV[0]));
 	if(model_ptr->sv_coef)

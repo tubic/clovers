@@ -1,14 +1,6 @@
 #ifndef _LIBSVM_H
 #define _LIBSVM_H
 
-#if defined(__AVX__)
-#include <immintrin.h>
-#endif
-
-#if defined(_OPENMP)
-#include <omp.h>
-#endif
-
 struct svm_problem
 {
 	int l;
@@ -40,9 +32,7 @@ struct svm_parameter
 	int probability;    /* do probability estimates */
 };
 
-//
 // svm_model
-//
 struct svm_model
 {
 	struct svm_parameter param;	/* parameter */

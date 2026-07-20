@@ -1,7 +1,7 @@
 # CLOVERS
 <br/>
 
-![LOGO](logo.png)
+![LOGO](LOGO.png)
 
 <br/>
 
@@ -13,10 +13,8 @@
 ![Dependencies](https://img.shields.io/badge/dependencies-minimal-green)
 [![GPLv3 License](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 ![x86_64](https://img.shields.io/badge/arch-x86__64-green)
-![GitHub release](https://img.shields.io/github/v/release/zetong-zhang/CLOVERS)
-![GitHub downloads](https://img.shields.io/github/downloads/zetong-zhang/CLOVERS/total)
 
-Accurate *ab initio* prediction of genes and with CLOVERS
+Accurate *ab initio* prediction of prokaryotic and phagic genes and with CLOVERS !
 
 ## Contents
 - **[Overview](#overview)** - Project introduction and features
@@ -28,7 +26,6 @@ Accurate *ab initio* prediction of genes and with CLOVERS
 - **[Performance](#performance)** - Performance benchmarks and comparisons with other tools
 - **[Structure](#structure)** - Project file structure and organization
 - **[Server](#server)** - Free available server for running tasks online
-- **[Citation](#citation)** - Citation guide for academic use
 - **[Contact](#contact)** - Contact information for questions or support
 - **[License](#license)** - GNU General Public License v3.0
 
@@ -36,21 +33,8 @@ Accurate *ab initio* prediction of genes and with CLOVERS
 CLOVERS is an novel ab initio gene finder that utilizes the Z-curve method for robust protein-coding gene prediction on prokaryotic and phage genomes. Its novel technical approach gives it an advantage in detecting more overlapped genes - which are often missed by other state-of-the-art tools - while remaining highly competitive in overall gene recognition.
 
 ## Setup
-### Windows/Linux (x86_64)
-Download the latest precompiled binary file from the [release page](https://github.com/zetong-zhang/CLOVERS/releases), and decompress it to the directory of your choice.
 
-### Other Operating Systems
-Clone the repository and compile the source code yourself.  
-
-```bash
-git clone https://github.com/zetong-zhang/clovers.git
-cd clovers
-make  # use mingw32-make on windows (MinGW)
-```
-*Note:*  
-(1) If your system doesn't have zlib installed, or you just don't want to use zlib, just remove the `-DZLIB` and `-lz` option in `CXXFLAGS`;   
-(2) If you don't want to use AVX and FMA function, just remove the `-mavx` and `-mfma` option in `CXXFLAGS`;  
-(3) If you don't want to use OpenMP function, just remove the `-fopenmp` option in `CXXFLAGS`.
+Download the latest precompiled binary file from the [release page](https://tubic.tju.edu.cn/clovers/download), and decompress it to the directory of your choice.
 
 ## Usage
 ### Quick Start
@@ -70,29 +54,29 @@ clovers.exe [OPTION...]
 Print help menu and exit. If no option is specified (only `./clovers` was entered or double-clicked the icon), print the help menu and wait for the user to press the Enter key or Ctrl+C to exit.
 
 * `-q, --quiet`  
-Run quietly with no stderr output.  
+Run quietly with no stderr output (note that fatal error messages will still be printed under quiet mode).
 
-* `-v, --version`
-Print version info and exit.
+* `-v, --version`  
+Print version info and exit (useful when to quickly check whether it has been configured in the environment).
 
 * `-T, --threads`  
-Number of threads to use. Please set as a positive integer. (default: all)
+Number of threads to use. Please set as a positive integer. (default: half)
 
 #### Input/Output Options
 * `-i, --input`   
 Specify FASTA/Genbank/EMBL input file or their compressed versions (gzip). (default: stdin)  
 
 * `-o, --output`  
-Specify output file. (default: stdout)
+Specify output file or '-' as standard output (stdout).
 
 * `-f, --format`  
-Select output format (gff, gbk, med). (default: gff)
+Select output format (gff, gbk, med, gbk-full). (default: gff)
 
 * `-a, --faa`  
-Write protein translations of genes to the selected file.
+Write protein translations of genes to the selected file or '-' as stdout.
 
 * `-d, --fna`  
-Write nucleotide sequences of genes to the selected file.
+Write nucleotide sequences of genes to the selected file or '-' as stdout.
 
 #### CLOVERS Options  
 * `-g, --table`  
@@ -104,29 +88,29 @@ Specify a genetic codon table to use (1, 4, 11, 15, 16, 25 or auto). (default: 1
 Specify the mininum length (nt) of ORFs. (default: 90)
 
 * `-c, --circ`  
-Treat all the sequences's topology as circular.
+Treat the default topology as circular. Note that the topology for each sequence can be set by the words "circular" or "linear" appear in the header line (FASTA/GenBank/EMBL), and this option will only take effect when the words "circular" or "linear" do not exist.
 
 * `-p, --proc`  
 Select prediction procedure (single or meta).
 
 * `-s, --thres`  
-Specify putative gene probability score threshold. (default: 0.5)
+Specify putative gene probability score threshold. For chromosomes, the recommended setting is 0.5. For plasmids, viruses, and bacteriophages, the recommended setting is 0.4. (default: 0.5)
 
 * `-t, --train`  
 Write (if none exists) or use the specified training file.
 
 #### TriTISA+ Options  
 * `-n, --bypass`  
-Bypass TriTISA+ and output longest ORFs.
+Bypass TriTISA+ and output the longest ORFs (most left 5'-end).
 
 * `-M,--maxiter`  
-Max iteration times for TIS revision. (default: 20)
+Max iteration times for RBS revision. (default: 20)
 
-* `-I,--tis`  
-Write (if none exists) or use the specified TIS model file.
+* `-R,--rbs`  
+Write (if none exists) or use the specified RBS model file.
 
 #### GOP-Reporter options:  
-* `-L, --minolen`  
+* `-L, --min-olen`  
 Specify the mininum overlapped length between two ORFs. (default: 120)
 
 * `-O, --overlap`  
@@ -138,47 +122,31 @@ Write protein translations of overlapped genes to the selected file.
 * `-D, --nucl`  
 Write nucleotide sequences of overlapped genes to the selected file.
 
-* `-M, --ratio`  
-Specify minimum overlap ratio for overlapped genes. (default: 0.6)
-
 ## Examples
-### Basic Usage
 ```bash
 # Predict genes in a FASTA file and output to GFF3
 clovers -i example.fasta -o example.gff
 
-# Predict genes in a circular genome
-clovers -i circular.fasta -o output.gff -c
-
-# Use a custom translation table (e.g., table 4 for Mycoplasma)
-clovers -i input.fasta -o output.gff -g 4
-
 # Use auto-detection of translation table
 clovers -i input.fasta -o output.gff -g auto
-```
 
-### Advanced Usage
-```bash
 # Generate protein and nucleotide sequences
 clovers -i input.fasta -o output.gff -a proteins.faa -d genes.fna
 
 # Detect overlapped genes and their sequences
 clovers -i input.fasta -o output.gff -O overlap.gff -A overlap.faa -D overlap.fna
 
-# Use multiple threads for faster processing
-clovers -i large.fasta -o output.gff -T 8
+# Predict genes in metagenomes
+clovers -i input.fasta -o output.gff -p meta
 
-# Predict in metagenomes and use longest ORFs
-clovers -i input.fasta -o output.gff -p meta -n
-
-# Generate training file and TIS model file
-clovers -i input.fasta -o output.gff -t training.dat -I tis_model.bin
+# Generate training file and RBS model file
+clovers -i input.fasta -o output.gff -t training.dat -I rbs_model.bin
 ```
 
 ## Input
 CLOVERS supports FASTA format input (stdin or file) or their compressed versions (gzip) with content like follow:
 ```
->NC_000913.3
+>NC_000913.3 circular
 AGCTTTTCATTCTGACTGCAACGGGCAATATGTCTCTGTGTGGATTAAAAAAAGAGTGTCTGATAGCAGC
 TTCTGAACTGGTTACCTGCCGTGAGTAAATTAAAATTTTATTGACTTAGGTCACTAAATACTTTAACCAA
 TATAGGCATAGCGCACAGACAGATAAAAATTACAGAGTACACAACATCCATGAAACGCATTAGCACCACC
@@ -215,23 +183,29 @@ SQ
     **GFF File Example:**
     ```
     ##gff-version 3
-    # Translation Table: 11
-    # NC_000913.3	4641652 bp	linear	UNA	10-MAR-2026
-    NC_000913.3	CLOVERS_v1.0.1	CDS	337	2799	0.974	+	0	ID=orf000001
-    NC_000913.3	CLOVERS_v1.0.1	CDS	2801	3733	0.968	+	0	ID=orf000002
+    # trans_tbl: 11
+    # NC_000913.3	4641652 bp	circular	UNA	19-MAY-2026
+    NC_000913.3	CLOVERS_v1.1.0	CDS	337	2799	0.974	+	0	ID=ORF000001
+    NC_000913.3	CLOVERS_v1.1.0	CDS	2801	3733	0.968	+	0	ID=ORF000002
     . . .
     ```
     **GenBank File Example:**
     ```
-    LOCUS       NC_000913.3          4641652 bp    DNA       linear UNA 10-MAR-2026
+    LOCUS       NC_000913.3          4641652 bp    DNA     circular UNA 19-MAY-2026
     DEFINITION  NC_000913.3
     FEATURES             Location/Qualifiers
-        CDS             337..2799
-                        /transl_table=11
-                        /note="version=CLOVERS_v1.0.1;ID=orf000001;score=0.974"
-        CDS             2801..3733
-                        /transl_table=11
-                        /note="version=CLOVERS_v1.0.1;ID=orf000002;score=0.968"
+         CDS             337..2799
+                         /locus_tag=ORF000001
+                         /transl_table=11
+                         /codon_start=1
+                         /note="Derived by protein-coding gene prediction method: CLOVERS_v1.1.0"
+                         /translation="MRVLKFGG...LGV*"
+         CDS             2801..3733
+                         /locus_tag=ORF000002
+                         /transl_table=11
+                         /codon_start=1
+                         /note="Derived by protein-coding gene prediction method: CLOVERS_v1.1.0"
+                         /translation="MVKVYAPA...LEN*"
     . . .
     ORIGIN
     //
@@ -239,8 +213,8 @@ SQ
     **MED File Example:**
     ```
     ## MED
-    # Translation Table: 11
-    # NC_000913.3	4641652 bp	linear	UNA	10-MAR-2026
+    # trans_tbl: 11
+    # NC_000913.3	4641652 bp	circular	UNA	19-MAY-2026
     337 2799	+
     2801 3733	+
     . . .
@@ -270,78 +244,13 @@ SQ
     CGCTCTGTGTGACAAGCCGGAAACCGCCCAGCGCGTTGCCGACTGGTTGGGTAAGAACTACCTGCAAAATCAGGAAGGTT
     TTGTTCATATTTGCCGGCTGGATACGGCGGGCGCACGAGTACTGGAAAACTAA
     . . .
-    ```
-## Performance
-CLOVERS is tested on a variety of reference genomes with MS-verified and RefSeq homology-supported gene annotations to compare its performance with other tools (Prodigal, GeneMarkS-2+, Glimmer, ZCURVE). The main performance metrics include sensitivity (for both common and overlapped genes), specificity and processing speed. 
-
-### Sensitivity & Specificity
-Sensitivity is the proportion of correctly predicted genes out of all evidenced genes, while specificity is measured by the false positive count on simulated genomes that were expected to contain no coding sequences.  
-
-**Predictions on genomes with MS-verified genes**
-
-This dataset was derived from a previously published benchmark dataset of 54 genomes used for evaluating GeneMarkS-2+, for which large-scale mass spectrometry (MS) experiments provided peptide-level evidence of protein expression.
-
-![ms_verified](.figures/MS_verified.png)  
-
-**Predictions on genomes with RefSeq-annotated genes**
-
-On July 21, 2025, high-quality assembled genome sequences of 1,789 bacteria and 177 archaea were downloaded from the RefSeq database, spanning 60 phyla and covering a GC-content range of 14%-75%. Note that only genomes belonging to distinct genera were selected to ensure an. Genes with clear experimental or homology evidence in the annotation were extracted to construct the benckmark set.
-
-![refseq_anno](.figures/RefSeq_anno.png)
-
-**Processing Speed**
-
-Benchmarking was conducted using an Intel Core i7-13620H (16 threads, auto-selection of codon table **OFF**).
-
-![proc_speed](.figures/Process_Speed.png)
-
-## Structure
-```
-clovers/
-├── bin/               # Binary data files
-│   └── meta.bin           # Pre-designed heuristic model params
-├── build/             # Build directory
-├── include/           # Header files
-│   ├── BioIO.hpp           # Bioinformatics I/O operation
-│   ├── BioStruct.hpp       # Bioinformatics data structure
-│   ├── BioUtil.hpp         # Bioinformatics utility
-│   ├── cxxopt.hpp          # Command line option parser
-│   ├── Encoding.hpp        # Sequence Z-curve encoding
-│   ├── Model.hpp           # Model function (CDS, TIS)
-│   └── svm.hpp             # LibSVM wrapper
-├── Scripts/           # Python scripts
-│   ├── Label.py            # Ab initio labeling ORFs
-│   ├── README.md           # Scripts instruction
-│   ├── Train.py            # Training heuristic models
-│   ├── requirements.txt    # Python dependencies
-│   ├── setup.py            # CPython extension setup
-│   ├── Zcurve.cpp          # Z-curve encoding extension
-│   └── Zcurve.pyi
-├── src/               # Source files
-│   ├── Main.cpp            # Program entry point
-│   ├── BioIO.cpp
-│   ├── BioStruct.cpp
-│   ├── BioUtil.cpp
-│   ├── Encoding.cpp
-│   ├── Model.cpp
-│   └── svm.cpp
-├── example.fa         # Example FASTA file
-├── LICENSE            # License file
-├── Makefile           # Makefile for building
-└── README.md          # Readme file
-```
-
-## Citation
-Zetong Zhang, Yan Lin*, Feng Gao*. Ab initio prediction of genes in genes using the Z-curve method.
 
 ## Server
 - **CLOVERS Server**: Free available at [https://tubic.tju.edu.cn/clovers/](https://tubic.tju.edu.cn/clovers/).
 
 ## Contact
-- **Author**: Zetong Zhang, Yan Lin*, Feng Gao*
-- **Homepage**: [https://tubic.tju.edu.cn/clovers/](https://tubic.tju.edu.cn/clovers/)
-- **GitHub**: [https://github.com/zetong-zhang/clovers](https://github.com/zetong-zhang/clovers)
-- **Issues**: Report bugs or feature requests on the [GitHub Issues](https://github.com/zetong-zhang/clovers/issues) page
+- **Authors**: Zetong Zhang, Yan Lin*, Feng Gao*
+- **Emails**: zhangzetong@tju.edu.cn | ylin@tju.edu.cn | fgao@tju.edu.cn
 
 ## License
 CLOVERS is distributed under the GNU General Public License v3.0. See the [LICENSE](LICENSE) file for details.

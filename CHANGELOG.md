@@ -1,6 +1,17 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## [1.1.0] - 2026-05-20
+
+### Changed
+In this version, the code has been completely restructured. Unnecessary logic has been removed, and all functions have been encapsulated to minimize memory errors (e.g., array out-of-bounds and unreleased memory) and improve the running speed.
+
+### Added
+- Compilation support for 32-bit systems.
+- Output the complete GenBank file containing the sequence.
+- Specify the topology for each sequence in one assembly.
+- Complete RNA genome processing capability.
+
 ## [1.0.6] - 2026-04-22
 
 ### Changed
