@@ -7,23 +7,28 @@ LDFLAGS ?= -lz
 SRC_DIR := src
 INC_DIR := include
 BUILD_DIR := build
+SCRIPTS_DIR := scripts
 
 # Object files (auto-derived from src/*.cpp, preserving filename casing)
 SRC_FILES := $(wildcard $(SRC_DIR)/*.cpp)
 OBJ_FILES := $(SRC_FILES:$(SRC_DIR)/%.cpp=$(BUILD_DIR)/%.o)
 
-# Target executables (per-platform filenames)
+# Per-platform filenames
 ifeq ($(OS),Windows_NT)
-    TARGET_FILES := clovers.exe labeler.exe
     EXT := .exe
     CLEAN_CMD := powershell -Command " \
-        Remove-Item -Force -ErrorAction SilentlyContinue clovers.exe, labeler.exe; \
+        Remove-Item -Force -ErrorAction SilentlyContinue clovers.exe; \
+        Remove-Item -Force -ErrorAction SilentlyContinue '$(SCRIPTS_DIR)/labeler.exe'; \
         Remove-Item -Recurse -Force -ErrorAction SilentlyContinue '$(BUILD_DIR)'"
 else
-    TARGET_FILES := clovers labeler
     EXT :=
-    CLEAN_CMD := rm -f $(TARGET_FILES) && rm -rf $(BUILD_DIR)
+    CLEAN_CMD := rm -f clovers $(SCRIPTS_DIR)/labeler && rm -rf $(BUILD_DIR)
 endif
+
+# Target executables (paths to the final binaries)
+CLOVERS := clovers$(EXT)
+LABELER := $(SCRIPTS_DIR)/labeler$(EXT)
+TARGET_FILES := $(CLOVERS) $(LABELER)
 
 .PHONY: all clean rebuild
 
@@ -37,10 +42,10 @@ $(OBJ_FILES): $(BUILD_DIR)/%.o: $(SRC_DIR)/%.cpp
 	$(CXX) $(CXXFLAGS) -I$(INC_DIR) -c $< -o $@
 
 # Per-target prerequisites
-clovers$(EXT): $(BUILD_DIR)/svm.o $(BUILD_DIR)/Clovers.o
-labeler$(EXT): $(BUILD_DIR)/svm.o $(BUILD_DIR)/Labeler.o
+$(CLOVERS): $(BUILD_DIR)/svm.o $(BUILD_DIR)/Clovers.o
+$(LABELER): $(BUILD_DIR)/svm.o $(BUILD_DIR)/Labeler.o
 
-# Shared link recipe
+# Shared link recipe (output path is the target name)
 $(TARGET_FILES):
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
 

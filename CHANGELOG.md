@@ -11,6 +11,7 @@ In this version, the code has been completely restructured. Unnecessary logic ha
 - Output the complete GenBank file containing the sequence.
 - Specify the topology for each sequence in one assembly.
 - Complete RNA genome processing capability.
+- Replaced the `med` output format with standard BED6 (`bed`).
 
 ## [1.0.6] - 2026-04-22
 
@@ -21,7 +22,7 @@ In this version, the code has been completely restructured. Unnecessary logic ha
 ## [1.0.5] - 2026-04-03
 
 ### Added
-- Added RNA sequence handling support for TriTISA+ and protein translation.
+- Added RNA sequence handling support for TriTISA and protein translation.
 - Added translation table #15 (Blepharisma Nuclear Code).
 - Incorporating the RBS score into the determination of the final score.
 - Added version information display in the help menu.
@@ -30,7 +31,7 @@ In this version, the code has been completely restructured. Unnecessary logic ha
 - Optimized the processing procedure for the phage genomes.
 - Fixed some errors present in the Python scripts.
 - Optimized the overlapping gene reporter.
-- Fixed the calculation error of the Bayesian factor in TriTISA+.
+- Fixed the calculation error of the Bayesian factor in TriTISA.
 - For the protein output, replace non-AGCT chars with "X"s (unknown amino acids) instead of reporting an error.
 - Fixed the issue where the external SVM model could not be loaded in certain cases.
 
@@ -54,7 +55,7 @@ In this version, the code has been completely restructured. Unnecessary logic ha
 
 ### Added
 - Added the parameter `minolen` to filter overprinted genes with a minimum overprinted length between two ORFs;
-- Added the length/topology of each sequence and date information to the output (GFF3, GBK and MED).
+- Added the length/topology of each sequence and date information to the output (GFF3, GBK and BED).
 
 ### Changed
 - Optimized the exception handling of all the modules to improve performance;
@@ -63,7 +64,7 @@ In this version, the code has been completely restructured. Unnecessary logic ha
 ## [1.0.1] - 2026-03-09
 
 ### Added
-- Pretrained markov model for TriTISA+ to complete TIS revision on sequences where the samples are too few to initiate self-training.
+- Pretrained markov model for TriTISA to complete TIS revision on sequences where the samples are too few to initiate self-training.
 
 ### Changed
 - Fixed the bug that overprinted genes cannot be detected at the boundaries of the circular genomes;
