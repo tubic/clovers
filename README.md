@@ -1,7 +1,7 @@
 # CLOVERS
 <br/>
 
-![LOGO](LOGO.png)
+![LOGO](./logo.png)
 
 <br/>
 
@@ -14,7 +14,7 @@
 [![GPLv3 License](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 ![x86_64](https://img.shields.io/badge/arch-x86__64-green)
 
-Accurate *ab initio* prediction of prokaryotic and phagic genes and with CLOVERS !
+High-performance *ab initio* prokaryotic and phagic gene prediction and with CLOVERS !
 
 ## Contents
 - **[Overview](#overview)** - Project introduction and features
@@ -25,24 +25,44 @@ Accurate *ab initio* prediction of prokaryotic and phagic genes and with CLOVERS
 - **[Output](#output)** - Description of the output files and formats
 - **[Performance](#performance)** - Performance benchmarks and comparisons with other tools
 - **[Structure](#structure)** - Project file structure and organization
-- **[Server](#server)** - Free available server for running tasks online
+- **[Web Server](#web-server)** - Free available server for running tasks online
 - **[Contact](#contact)** - Contact information for questions or support
 - **[License](#license)** - GNU General Public License v3.0
 
 ## Overview
-CLOVERS is an novel ab initio gene finder that utilizes the Z-curve method for robust protein-coding gene prediction on prokaryotic and phage genomes. Its novel technical approach gives it an advantage in detecting more overlapped genes - which are often missed by other state-of-the-art tools - while remaining highly competitive in overall gene recognition.
+CLOVERS is a high-performance *ab initio* gene finder that revisits and reformulats geometric model-based paradigm pioneered by the ZCURVE family ([10.1093/nar/gkg254](https://doi.org/10.1093/nar/gkg254)) with a novel technical route. The tool delivers a state-of-the-art performance, enables the *de novo* discovery of overlapping genes, and runs fast with minimal memory. 
 
 ## Setup
 
-Download the latest precompiled binary file from the [release page](https://tubic.tju.edu.cn/clovers/download), and decompress it to the directory of your choice.
+Download the latest precompiled binary executable file (Linux/Windows/MacOS x86_64, MacOS) from the [release page](https://tubic.tju.edu.cn/clovers/download), and decompress it to the directory of your choice. 
+
+```bash
+wget https://tubic.tju.edu.cn/clovers/static/pkg/clovers.linux64.tar.gz
+# wget https://tubic.tju.edu.cn/clovers/static/pkg/clovers.win64.zip
+# wget https://tubic.tju.edu.cn/clovers/static/pkg/clovers.macos64.tar.gz
+tar -xvf clovers.linux64.tar.gz
+# tar -xvf clovers.win64.zip
+# tar -xvf clovers.macos64.tar.gz
+```
+
+If there is no distribution suitable for your operating system, you can modify the code yourself and compile and install it.   
+
+```bash
+git clone https://github.com/zetong-zhang/clovers.git
+cd clovers
+# do some modification if needed
+make  # use mingw32-make (MinGW) on Windows
+```
 
 ## Usage
-### Quick Start
+### Configuration
 We recommend configure the environment variable `PATH` to include the directory of the executable binary file, such that you can run `clovers` directly in the terminal.
 
 ```bash
-clovers -i example.fasta -o example.gff -c -f gff
+echo 'export PATH=$PATH:/path/to/clovers' >> ~/.bashrc
+source ~/.bashrc
 ```
+
 ### Options
 
 ```bash
@@ -51,7 +71,7 @@ clovers.exe [OPTION...]
 
 #### General Options
 * `-h, --help`  
-Print help menu and exit. If no option is specified (only `./clovers` was entered or double-clicked the icon), print the help menu and wait for the user to press the Enter key or Ctrl+C to exit.
+Print help menu and exit.
 
 * `-q, --quiet`  
 Run quietly with no stderr output (note that fatal error messages will still be printed under quiet mode).
@@ -70,7 +90,9 @@ Specify FASTA/Genbank/EMBL input file or their compressed versions (gzip). (defa
 Specify output file or '-' as standard output (stdout).
 
 * `-f, --format`  
-Select output format (gff, gbk, med, gbk-full). (default: gff)
+Select output format (gff, gbk, bed, gbk-full). (default: gff)
+
+  **Note:** The bed format follows BED6 convention: `chrom  chromStart  chromEnd  name  score  strand`, with 0-based half-open coordinates (`chromStart = start - 1`, `chromEnd = end`) and score scaled from the predicted probability (0-1000).
 
 * `-a, --faa`  
 Write protein translations of genes to the selected file or '-' as stdout.
@@ -91,7 +113,7 @@ Specify the mininum length (nt) of ORFs. (default: 90)
 Treat the default topology as circular. Note that the topology for each sequence can be set by the words "circular" or "linear" appear in the header line (FASTA/GenBank/EMBL), and this option will only take effect when the words "circular" or "linear" do not exist.
 
 * `-p, --proc`  
-Select prediction procedure (single or meta).
+Select prediction procedure (single or meta). In meta mode, only the built‑in model is used; no genome‑specific model will be built to avoid false positives from contaminated sequences.
 
 * `-s, --thres`  
 Specify putative gene probability score threshold. For chromosomes, the recommended setting is 0.5. For plasmids, viruses, and bacteriophages, the recommended setting is 0.4. (default: 0.5)
@@ -99,9 +121,9 @@ Specify putative gene probability score threshold. For chromosomes, the recommen
 * `-t, --train`  
 Write (if none exists) or use the specified training file.
 
-#### TriTISA+ Options  
+#### TriTISA Options  
 * `-n, --bypass`  
-Bypass TriTISA+ and output the longest ORFs (most left 5'-end).
+Bypass TriTISA and output the longest ORFs (most left 5'-end).
 
 * `-M,--maxiter`  
 Max iteration times for RBS revision. (default: 20)
@@ -178,15 +200,15 @@ SQ
 //
 ```
 ## Output
-- **GFF/GenBank/MED files**: Primary annotation results containing gene locations, scores and other attributes
+- **GFF/GenBank/BED files**: Primary annotation results containing gene locations, scores and other attributes
 
     **GFF File Example:**
     ```
     ##gff-version 3
     # trans_tbl: 11
     # NC_000913.3	4641652 bp	circular	UNA	19-MAY-2026
-    NC_000913.3	CLOVERS_v1.1.0	CDS	337	2799	0.974	+	0	ID=ORF000001
-    NC_000913.3	CLOVERS_v1.1.0	CDS	2801	3733	0.968	+	0	ID=ORF000002
+    NC_000913.3	CLOVERS_v1.1.0	CDS	337	2799	0.974	+	0	ID=ORF000001;partial=00
+    NC_000913.3	CLOVERS_v1.1.0	CDS	2801	3733	0.968	+	0	ID=ORF000002;partial=00
     . . .
     ```
     **GenBank File Example:**
@@ -210,13 +232,11 @@ SQ
     ORIGIN
     //
     ```
-    **MED File Example:**
+    **BED File Example (BED6, 0-based half-open coordinates, score 0-1000):**
     ```
-    ## MED
-    # trans_tbl: 11
     # NC_000913.3	4641652 bp	circular	UNA	19-MAY-2026
-    337 2799	+
-    2801 3733	+
+    NC_000913.3	336	2799	ORF000001	974	+
+    NC_000913.3	2800	3733	ORF000002	968	+
     . . .
     ```
 - **Protein sequence files (.faa)**: Translated amino acid sequences of predicted genes
@@ -245,12 +265,70 @@ SQ
     TTGTTCATATTTGCCGGCTGGATACGGCGGGCGCACGAGTACTGGAAAACTAA
     . . .
 
-## Server
-- **CLOVERS Server**: Free available at [https://tubic.tju.edu.cn/clovers/](https://tubic.tju.edu.cn/clovers/).
+## Performance
+
+## Structure
+
+The repository is laid out as follows (`.exe` extensions appear on Windows builds; files and directories marked `*` are generated):
+
+```text
+CLOVERS/
+├── Makefile                  # builds clovers(.exe) and scripts/labeler(.exe)
+│                             #   (mingw32-make on Windows)
+├── include/                  # C++ headers shared by all binaries
+│   ├── Common.hpp            # core library: genome/ORF containers, Z-curve
+│   │                         #   encoding, heuristic models (MLP / PMM /
+│   │                         #   RBF-SVM wrappers), I/O utilities
+│   ├── svm.hpp               # libsvm C interface (types, training, scoring)
+│   └── cxxopts.hpp           # vendored command-line option parser
+├── src/
+│   ├── Clovers.cpp           # main gene-finder program (single & meta
+│   │                         #   procedures, output & GOL-Reporter)
+│   ├── Meta.cpp              # embedded pre-trained heuristic (MLP) weights;
+│   │                         #   a numeric-only array included by Clovers.cpp
+│   ├── Labeler.cpp           # ab initio ORF Labeler — developer tool that
+│   │                         #   auto-labels coding/non-coding ORFs to build
+│   │                         #   the heuristic-model training data
+│   ├── Eval.cpp              # standalone evaluator: compares predicted CDS
+│   │                         #   features with a reference set (5'/3'-end match)
+│   └── svm.cpp               # libsvm implementation used by the RBF-SVM model
+├── scripts/                  # Python training / evaluation toolchain
+│   ├── labeler(.exe) *       # compiled Labeler binary (training-data generator)
+│   ├── 01.GC_Partition.py    # GC-binning of positive/negative datasets
+│   ├── 02.Train.py           # trains the heuristic models used in meta mode
+│   ├── 03.Eval.py            # evaluates predicted vs. reference CDS features
+│   ├── 04.Test_Speed.py      # runtime benchmark of clovers vs. other tools
+│   ├── 05.Neg_Ctrl.py        # decoy (negative-control) genome generator
+│   ├── Zcurve.pyx            # Cython Z-curve encoder used by the scripts
+│   ├── setup.py              # builds the Zcurve extension in place
+│   ├── requirements.txt
+│   └── README.md             # per-script instructions
+├── example.fa                # demo input genome (E. coli)
+├── clovers(.exe) *           # compiled main binary
+├── build/ *                  # intermediate objects produced by make
+├── CHANGELOG.md
+├── LICENSE
+├── logo.png
+└── README.md
+```
+
+The two executables are assembled by the root `Makefile` as:
+
+| Binary | Translation units |
+|--------|-------------------|
+| `clovers(.exe)` | `Common.hpp` + `Meta.cpp` + `Clovers.cpp` (object) + `svm.cpp` (object) |
+| `scripts/labeler(.exe)` | `Common.hpp` + `Labeler.cpp` (object) + `svm.cpp` (object) |
+
+`Meta.cpp` contains no code of its own — it is the single embedded weight array of the heuristic parameters read by the MLP scoring in `Common.hpp`, and is compiled into `clovers(.exe)` only. `Eval.cpp` is a self-contained utility and is not part of either binary.
+
+## Web Server
+- Free available at [https://tubic.tju.edu.cn/clovers/](https://tubic.tju.edu.cn/clovers/).
 
 ## Contact
-- **Authors**: Zetong Zhang, Yan Lin*, Feng Gao*
-- **Emails**: zhangzetong@tju.edu.cn | ylin@tju.edu.cn | fgao@tju.edu.cn
+- **Authors**: Zetong Zhang, Zhisong You, Yan Lin*, Feng Gao*
+- **Address**: No. 92 Weijin Road Nankai District, Tianjin, China, 300072
+- **Emails**: ylin@tju.edu.cn | fgao@tju.edu.cn
+- **Telephone**: +86-22-27402697
 
 ## License
 CLOVERS is distributed under the GNU General Public License v3.0. See the [LICENSE](LICENSE) file for details.

@@ -1,6 +1,5 @@
 biopython
 scikit-learn
-matplotlib
-orfipy
 torch
-scikit-learn-intelex
+numpy
+cython
