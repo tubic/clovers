@@ -1,6 +1,7 @@
 #include "Common.hpp"
 #include "Meta.cpp"
 
+/* codon translation table (NCBI table 11), indexed by 2-bit codon value */
 char trans_tbl[] = {
     'F', 'F', 'L', 'L', 'S', 'S', 'S', 'S',
     'Y', 'Y', '*', '*', 'C', 'C', '*', 'W',
@@ -11,6 +12,7 @@ char trans_tbl[] = {
     'V', 'V', 'V', 'V', 'A', 'A', 'A', 'A',
     'D', 'D', 'E', 'E', 'G', 'G', 'G', 'G'
 };
+/* codons below are 2-bit encoded as T=0, C=1, A=2, G=3 */
 /* start codons */
 char ATG[]{2,0,3}, GTG[]{3,0,3}, TTG[]{0,0,3};
 /* stop codons  */
@@ -27,11 +29,13 @@ class Clovers {
     str                 table;  // translation table
     str                  proc;  // procedure
     bool        revised=false;  // revise gene start site
+    float             gc_cont;  // genome GC content
     /* ATG GTG TTG (AUG GUG UUG) */
     str_arr STARTS { ATG, GTG, TTG };
     /* TAA TAG TGA (UAA UAG UGA) */
     str_arr STOPS  { TAA, TAG, TGA };
     
+    /* parse command-line arguments */
     static cxxopts::ParseResult parse_args(int argc, char* argv[]) {
         // executable file name
         str exe_name = utils::filename(argv[0]);
@@ -46,7 +50,10 @@ class Clovers {
             ("q,quiet",    "Run quietly with no stderr output.")
 
             ("v,version",  "Print version info and exit.")
-
+        #if defined(WEB)
+            ("x,debug",    "Specify the debug file.",
+             cxxopts::value<str>())
+        #endif
             ("T,threads",  "Number of threads to use. (default: half)",
              cxxopts::value<uint32_t>());
         
@@ -58,7 +65,7 @@ class Clovers {
             ("o,output",   "Write results to the output file or '-' as stdout. (default: none)",
             cxxopts::value<str>())
             
-            ("f,format",   "Select output format (gff, med, gbk, gbk-full).",
+            ("f,format",   "Select output format (gff, bed, gbk, gbk-full).",
             cxxopts::value<str>()->default_value("gff"))
             
             ("a,faa",      "Write protein translations to the selected file or '-' as stdout.",
@@ -86,9 +93,9 @@ class Clovers {
             ("t,train",    "Write (if none exists) or use the specified SVM training file.",
             cxxopts::value<str>());
         
-        /* tri-tisa+ parameters */
-        options.add_options("TriTISA+")
-            ("n,bypass",   "Bypass TriTISA+ and output longest ORFs.")
+        /* tri-tisa parameters */
+        options.add_options("TriTISA")
+            ("n,bypass",   "Bypass TriTISA and output longest ORFs.")
 
             ("M,maxiter",  "Max iteration times for gene start revision.",
             cxxopts::value<uint32_t>()->default_value("20"))
@@ -124,16 +131,12 @@ class Clovers {
             Debug() << "- - - - - - - - - - - - - - - - - - - - - - - - - - - -\n"
                        "PROTEIN-CODING GENE RECOGNITION SYSTEM OF CLOVERS 1.1.0\n\n"
                        "Copyright:  (C) 2003-2026 TUBIC, Tianjin University    \n"
-                       "Authors:    Zetong Zhang, Yan Lin*, Feng Gao*          \n"
+                       "Authors:    Zetong Z, You Z, Lin Y*, Gao F*            \n"
                        "Date:       March 31, 2026                             \n"
                        "Contact:    ylin@tju.edu.cn | fgao@tju.edu.cn          \n"
                        "- - - - - - - - - - - - - - - - - - - - - - - - - - - -\n"
                     << options.help() << "\nExample: " << options.program() << ' '
                     << "-i example.fa -o example.gff -c -f gff                 \n";
-            if (argc <= 1) {
-                Debug() << "\nPress Enter or Ctrl+C to exit the help ... ";
-                std::cin.get();
-            }
             NON_ERR;
         } else if (args.count("version")) { Debug() << VERSION << "\n"; NON_ERR; 
         } else if (args.count("quiet"))   { debug = &DEVNULL; };
@@ -141,12 +144,13 @@ class Clovers {
         return args;
     }
 
+    /* locate candidate ORFs on every scaffold with given start/stop codons */
     void locate_orfs(str_arr &starts, str_arr &stops, int minlen) {
         orfs.clear();
         for (auto &seq : genome) {
             if (seq.len >= minlen) {
                 orfs.locate_orfs(seq, starts, stops, minlen);
-                if (orfs.size() > 1000000) {
+                if (orfs.size() > 1000000) {  // guard against pathological inputs
                     std::cerr << "\nError: too many candidate ORFs ( > 1000000)\n";
                     SUB_ERR;
                 }
@@ -159,6 +163,7 @@ class Clovers {
         } else { orfs.init(); }
     }
 
+    /* pick the translation table with the largest fraction of high-scoring ORF length */
     str check_code() {
         static str_arr starts { ATG };
         static std::map<str, str_arr> stops = {
@@ -188,6 +193,7 @@ class Clovers {
     }
 
   public:
+    /* constructor: parse args, set threads and procedure */
     Clovers(int argc, char* argv[]) {
         start_t = SYSTEM_CLOCK now();
         auto start_time = SYSTEM_CLOCK to_time_t(start_t);
@@ -206,8 +212,14 @@ class Clovers {
         extensions += " zlib";
         #endif
         extensions += " OpenMP";
-        auto n_threads = omp_get_max_threads() / 2;
-        if(args.count("threads")) n_threads = args["threads"].as<uint32_t>();
+        auto n_threads = std::max(1, omp_get_max_threads() / 2);
+        if(args.count("threads")) {
+            n_threads = (int) args["threads"].as<uint32_t>();
+            if (n_threads < 1) {
+                std::cerr << "\nError: number of threads should be at least 1\n";
+                ARG_ERR;
+            }
+        }
         omp_set_num_threads(n_threads);
         Debug() << format_log("Threads Used: ", Str(n_threads));
         #endif
@@ -222,6 +234,7 @@ class Clovers {
                 << format_log("Procedure:", proc);
     }
 
+    /* read genome from input and compute overall GC content */
     Clovers &Load_Genome() {
         bool circ = (bool) args.count("circ");
         Debug() << format_log("Default Topology:", circ ? "Circular" : "Linear");
@@ -233,22 +246,25 @@ class Clovers {
             size += seq.len;
             gc_count += seq.gc_count;
         }
-        float gc_cont = (float) gc_count / size * 100;
+        gc_cont = (float) gc_count / size * 100;
         Debug() << format_log("Number of Scaffolds:", Str(genome.size()))
                 << format_log("Genome Size:", Str(size) + " bp")
                 << "GC Content:" << std::setw(36) << std::fixed << std::setprecision(2) << gc_cont << " %\n";
         return *this;
     }
 
+    /* Z-curve encode ORFs and score them with GC-specific MLP models */
     Clovers &Init_Scores(bool debug=true) {
         zcurve::encode(orfs);
         int gc_intv[N_MODELS] = {0};
         {
+            /* count ORFs per GC interval: 1% GC bins starting from 20%;
+               ORFs beyond the last model's GC range fall into the last bin */
             float max_gc = 0.20;
             for (int i = 0, j = 0; i < orfs.size(); i ++) {
-                if (orfs[i].gc_cont > max_gc) {
+                if (orfs[i].gc_cont > max_gc && j < N_MODELS-1) {
                     max_gc += 0.01;
-                    if ((++j) >= (N_MODELS)) break;
+                    ++j;
                 }
                 gc_intv[j] ++;
             }
@@ -263,11 +279,11 @@ class Clovers {
             }
             offset += gc_intv[i];
         }
-        orfs.froze();
         
         return *this;
     }
 
+    /* select translation table; patch start/stop codons and trans_tbl accordingly */
     Clovers &Check_Table() {
         table = args["table"].as<str>();
         if (table == "auto") table = check_code();
@@ -275,16 +291,16 @@ class Clovers {
             STARTS.assign({ ATG });
         } else if (table == "4") {
             STOPS. assign({ TAA, TAG });
-            trans_tbl[14] = 'W';
+            trans_tbl[14] = 'W';  // TGA -> Trp
         } else if (table == "15") {
             STOPS. assign({ TAA, TGA });
-            trans_tbl[11] = 'Q';
+            trans_tbl[11] = 'Q';  // TAG -> Gln
         } else if (table == "16") {
             STOPS. assign({ TAA, TGA });
-            trans_tbl[11] = 'L';
+            trans_tbl[11] = 'L';  // TAG -> Leu
         } else if (table == "25") {
             STOPS. assign({ TAA, TAG });
-            trans_tbl[14] = 'G';
+            trans_tbl[14] = 'G';  // TGA -> Gly
         } else if (table != "11") {
             std::cerr << "\nError: unsupported translation table " << table << ".\n\n"
                          "Genetic code options: \n\n 1  - Standard\n"
@@ -300,6 +316,7 @@ class Clovers {
         return *this;
     }
 
+    /* locate candidate ORFs with the user-specified minimum length */
     Clovers &Locate_Orfs() {
         int minlen = (int)args["minlen"].as<uint32_t>();
         if (minlen < MIN_LEN) {
@@ -312,6 +329,7 @@ class Clovers {
         return *this;
     }
 
+    /* TriTISA: train an RBS position model and revise ORF start sites */
     Clovers &Revise_Orfs() {
         if (proc == "Metagenome" || args.count("bypass")) return *this;
         Debug() << format_log("Revising RBS Model:", "Round #0", true);
@@ -324,7 +342,7 @@ class Clovers {
         else {
             int_arr seeds = orfs.filter(300, 0.5, true);
             int round = 0;
-            if (seeds.size() >= 0) for (int order = 0; order <= 2; order ++) {
+            if (seeds.size() >= 0) for (int order = 0; order <= 2; order ++) {  // Markov orders 0-2
                 model.reset(order);
                 for (int i = 0; i < maxiter; i ++) {
                     Debug() << format_log("Revising RBS Model:", str("Round #")+Str(++round), true);
@@ -339,8 +357,9 @@ class Clovers {
         return *this;
     }
 
+    /* score ORFs with a genome-specific RBF-SVM and yield putative genes */
     Clovers &Csvm_Scores() {
-        if (proc != "Metagenome" && orfs.weight >= 0.8) {
+        if (proc != "Metagenome") {
             if (revised) zcurve::encode(orfs.concat());
 
             model::svm model(orfs);
@@ -362,11 +381,12 @@ class Clovers {
         return *this;
     }
 
+    /* write gene predictions to the requested output files */
     Clovers &Save_Result() {
         str format = args["format"].as<str>();
 
         if (args.count("output")) {
-            str outfile = args["output"].as<str>();
+            auto outfile = args["output"].as<str>();
             utils::write_output(outfile, genes, start_t, table, format);
         }
 
@@ -379,16 +399,25 @@ class Clovers {
             auto fnaout = args["fna"].as<str>();
             utils::write_output(fnaout, genes, start_t, table, "fna");
         }
+    #if defined(WEB)
+        if (args.count("debug")) {
+            auto debug_file = args["debug"].as<str>();
+            int thres_len = (gc_cont < 45.0F || gc_cont >= 63.0F) ? 180 : 240;  // length cutoff varies with GC range
+            int_arr indices = orfs.filter(thres_len, 1.0F);
+            zcurve::save_bin(debug_file, orfs, indices);
+        }
+    #endif
         return *this;
     }
 
+    /* GOL-Reporter: find and write overlapped gene pairs */
     Clovers &Report_Gols() {
         if (!args.count("overlap") && !args.count("amino") && !args.count("nucl"))
             return *this;
 
         auto pairs = bioinfo::orfs::overlap(args["min-olen"].as<uint32_t>(), genes);
 
-        Debug() << format_log("Number of Overlapped Pairs:", Str(pairs.size()/2));
+        Debug() << format_log("Number of Overlapped Pairs:", Str(pairs.size()/2));  // two entries per pair
 
         if (args.count("overlap")) {
             str outfile = args["overlap"].as<str>();
@@ -408,6 +437,7 @@ class Clovers {
         return *this;
     }
 
+    /* destructor: print total elapsed time */
     ~Clovers() { 
         using namespace std::chrono;
         auto end_t = SYSTEM_CLOCK now();
@@ -420,6 +450,7 @@ class Clovers {
 int main(int argc, char *argv[]) {
     std::ios::sync_with_stdio(false);
     
+    /* run the full gene prediction pipeline */
     Clovers(argc, argv)
         . Load_Genome()
         . Check_Table()
@@ -428,6 +459,5 @@ int main(int argc, char *argv[]) {
         . Revise_Orfs()
         . Csvm_Scores()
         . Save_Result()
-        . Report_Gols()
-    ;
+        . Report_Gols();
 }

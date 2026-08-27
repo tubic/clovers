@@ -1,0 +1,15 @@
+/.vscode
+__pycache__
+build
+dist
+trash
+*.bat
+*.exe
+*.gff
+*.faa
+*.fna
+*.med
+*.dat
+*.o
+*.pyd
+*.so
