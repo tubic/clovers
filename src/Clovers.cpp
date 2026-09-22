@@ -129,7 +129,7 @@ class Clovers {
 
         if (argc <= 1 || args.count("help")) {
             Debug() << "- - - - - - - - - - - - - - - - - - - - - - - - - - - -\n"
-                       "PROTEIN-CODING GENE RECOGNITION SYSTEM OF CLOVERS 1.1.0\n\n"
+                       "PROTEIN-CODING GENE RECOGNITION SYSTEM OF CLOVERS 1.1.1\n\n"
                        "Copyright:  (C) 2003-2026 TUBIC, Tianjin University    \n"
                        "Authors:    Zetong Z, You Z, Lin Y*, Gao F*            \n"
                        "Date:       March 31, 2026                             \n"
@@ -241,12 +241,12 @@ class Clovers {
         str filename = args["input"].as<str>();
         if (filename.empty()) filename = "-";
         utils::read_source(filename, genome, circ);
-        size_t size = 0; int gc_count = 0;
+        size_t size = 0, gc_count = 0;
         for (auto &seq : genome) {
             size += seq.len;
             gc_count += seq.gc_count;
         }
-        gc_cont = (float) gc_count / size * 100;
+        gc_cont = size ? (float) (100.0 * (double) gc_count / size) : 0.0F;
         Debug() << format_log("Number of Scaffolds:", Str(genome.size()))
                 << format_log("Genome Size:", Str(size) + " bp")
                 << "GC Content:" << std::setw(36) << std::fixed << std::setprecision(2) << gc_cont << " %\n";

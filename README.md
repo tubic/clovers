@@ -33,7 +33,7 @@ CLOVERS is a high-performance *ab initio* gene finder that revisits and reformul
 
 ## Setup
 
-Download the latest precompiled binary executable file (Linux/Windows/MacOS x86_64, MacOS) from the [release page](https://tubic.tju.edu.cn/clovers/download), and decompress it to the directory of your choice. 
+Download the latest precompiled binary executable file (Linux/Windows/MacOS, 64-bit) from the [release page](https://tubic.tju.edu.cn/clovers/downloads), and decompress it to the directory of your choice. 
 
 ```bash
 wget https://tubic.tju.edu.cn/clovers/static/pkg/clovers.linux64.tar.gz
@@ -47,7 +47,7 @@ tar -xvf clovers.linux64.tar.gz
 If there is no distribution suitable for your operating system, you can modify the code yourself and compile and install it.   
 
 ```bash
-git clone https://github.com/zetong-zhang/clovers.git
+git clone https://github.com/tubic/clovers.git
 cd clovers
 # do some modification if needed
 make  # use mingw32-make (MinGW) on Windows
@@ -206,8 +206,8 @@ SQ
     ##gff-version 3
     # trans_tbl: 11
     # NC_000913.3	4641652 bp	circular	UNA	19-MAY-2026
-    NC_000913.3	CLOVERS_v1.1.0	CDS	337	2799	0.974	+	0	ID=ORF000001;partial=00
-    NC_000913.3	CLOVERS_v1.1.0	CDS	2801	3733	0.968	+	0	ID=ORF000002;partial=00
+    NC_000913.3	CLOVERS_v1.1.1	CDS	337	2799	0.974	+	0	ID=ORF000001;partial=00
+    NC_000913.3	CLOVERS_v1.1.1	CDS	2801	3733	0.968	+	0	ID=ORF000002;partial=00
     . . .
     ```
     **GenBank File Example:**
@@ -219,13 +219,13 @@ SQ
                          /locus_tag=ORF000001
                          /transl_table=11
                          /codon_start=1
-                         /note="Derived by protein-coding gene prediction method: CLOVERS_v1.1.0"
+                         /note="Derived by protein-coding gene prediction method: CLOVERS_v1.1.1"
                          /translation="MRVLKFGG...LGV*"
          CDS             2801..3733
                          /locus_tag=ORF000002
                          /transl_table=11
                          /codon_start=1
-                         /note="Derived by protein-coding gene prediction method: CLOVERS_v1.1.0"
+                         /note="Derived by protein-coding gene prediction method: CLOVERS_v1.1.1"
                          /translation="MVKVYAPA...LEN*"
     . . .
     ORIGIN

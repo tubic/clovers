@@ -598,12 +598,12 @@ class Labeler {
         str filename = args["input"].as<str>();
         if (filename.empty()) filename = "-";
         utils::read_source(filename, genome, circ);
-        size_t size = 0; int gc_count = 0;
+        size_t size = 0, gc_count = 0;
         for (auto &scaffold : genome) {
             size += scaffold.len;
             gc_count += scaffold.gc_count;
         }
-        gc_cont = (float) gc_count / size;
+        gc_cont = size ? (float) ((double) gc_count / size) : 0.0F;
         Debug() << format_log("Number of Scaffolds:", Str(genome.size()))
                 << format_log("Genome Size:", Str(size) + " bp")
                 << "GC Content:" << std::setw(36) << std::fixed 
