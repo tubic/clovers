@@ -3,9 +3,9 @@
  * 
  * @copyright (C)2026 TUBIC, Tianjin University
  * @authors:  Zetong Z, You Z, Lin Y*, Gao F*
- * @version   1.1.0
+ * @version   1.1.1
  * @date      2026-05-01
- * @modified  2026-08-31
+ * @modified  2026-09-22
  * @license:  GNU-GPLv3
  */
 #pragma once
@@ -51,7 +51,7 @@ static_assert(sizeof(float) == 4, "embedded MLP weights require 32-bit float");
 /* to_string */
 #define Str std::to_string
 /* software version */
-#define VERSION "CLOVERS_v1.1.0"
+#define VERSION "CLOVERS_v1.1.1"
 /* no throw memory error new */
 #define NEW new (std::nothrow)
 /* The buffer size for file reading. */
@@ -326,7 +326,7 @@ namespace bioinfo {
         str                  name;  // name
         std::array<str,2> strands;  // two strands
         size_t                len;  // length
-        int            gc_count=0;  // G+C count
+        size_t         gc_count=0;  // G+C count
         bool                 circ;  // circular
     /*  flt_arr             curve;  // GC-profile */
         scaffold() {};
@@ -414,11 +414,11 @@ namespace bioinfo {
       public:
         int         idx;  // unique index
         scaffold  *host;  // host scaffold
-        size_t    start;  // start
-        idx_arr  starts;  // alternative starts
+        int       start;  // start (signed: participates in coordinate arithmetic)
+        int_arr  starts;  // alternative starts
         int_arr   types;  // codon types of starts
-        size_t      end;  // end
-        size_t      len;  // length
+        int         end;  // end
+        int         len;  // length
         int      rstart;  // relative start
         int        rend;  // relative end
         char     strand;  // strand
@@ -434,14 +434,15 @@ namespace bioinfo {
         int edge_type=0;  // edge (partial 5'-end/3'-end)
         size_t   minlen;  // mininum length
         orf(): host(nullptr) {}
-        orf(scaffold *host, idx_arr &&starts, int_arr &&types, size_t end, char strand, size_t minlen): 
+        orf(scaffold *host, int_arr &&starts, int_arr &&types, int end, char strand, size_t minlen): 
         host(host),starts(std::move(starts)),types(std::move(types)),end(end),strand(strand),minlen(minlen)
         {   
             // refine start
             start = this->starts[0];
-            if (this->types[0] != 0) for (int i = 1; i < this->types.size(); i ++) {
-                size_t new_start = this->starts[i];
-                if (this->types[i] == 0 && (new_start-start) <= MIN_LEN && (end-new_start) >= minlen) {
+            if (this->types[0] != 0) for (int i = 1; i < (int) this->types.size(); i ++) {
+                int new_start = this->starts[i];
+                if (this->types[i] == 0 && new_start >= start && new_start-start <= MIN_LEN
+                        && end-new_start >= (int) minlen) {
                     start = new_start;
                     break;
                 }
@@ -450,7 +451,7 @@ namespace bioinfo {
         }
         /* safe circular sequence indexing function */
         char operator[](size_t idx){
-            return host->at(start+idx, strand);
+            return host->at((size_t) start+idx, strand);
         }
         /* overlapped length between two ORFs */
         int operator-(orf &other) {
@@ -458,8 +459,8 @@ namespace bioinfo {
                 int t_rst = rstart, t_rnd = rend;
                 int o_rst = other.rstart, o_rnd = other.rend;
                 // unwrap coordinates that cross the origin of a circular scaffold
-                if (t_rst > t_rnd) t_rst -= host->len;
-                if (o_rst > o_rnd) o_rst -= host->len;
+                if (t_rst > t_rnd) t_rst -= (int) host->len;
+                if (o_rst > o_rnd) o_rst -= (int) host->len;
                 if (t_rnd > o_rst && o_rnd > t_rst) 
                     return std::min(t_rnd, o_rnd) - std::max(t_rst, o_rst);
             }
@@ -468,7 +469,7 @@ namespace bioinfo {
         /* set alternative start as true start */
         int set_start(int idx) {
             int plen = end - starts[idx];
-            if (plen >= minlen && starts[idx] != start) {
+            if (plen >= (int) minlen && starts[idx] != start) {
                 start = starts[idx]; 
                 len = plen;
                 return 0;
@@ -534,11 +535,11 @@ namespace bioinfo {
         str sequence() {
             if (seq.empty()) {
                 str &chr = host->strands[strand];
-                if (end <= host->len) seq = chr.substr(start, end-start);
+                if ((size_t) end <= host->len) seq = chr.substr((size_t) start, (size_t) (end-start));
                 // wrap around the origin of a circular scaffold
                 else {
-                    seq = chr.substr(start, host->len - start);
-                    seq += chr.substr(0, end - host->len);
+                    seq = chr.substr((size_t) start, host->len - (size_t) start);
+                    seq += chr.substr(0, (size_t) end - host->len);
                 }
             }
             return seq;
@@ -666,7 +667,7 @@ namespace bioinfo {
             for (int strand = 0; strand < 2; strand ++) {
                 size_t count = 0;
                 for (int phase = 0; phase < 3; phase ++) {
-                    idx_arr starts; int_arr types;
+                    int_arr starts; int_arr types;
                     size_t pcount = 0, send = seq.len;
                     // circular: scan twice around to catch origin-spanning ORFs
                     if (seq.circ) send += seq.len;
@@ -684,11 +685,11 @@ namespace bioinfo {
                                 starts.pop_back();
                                 types.pop_back();
                             }
-                            starts.push_back(ps);
+                            starts.push_back((int) ps);
                             types.push_back(match);
                         } else if (starts.size() && seq.codon_type(ps, strand, stop_types) > -1) {
-                            arr.emplace_back(&seq, std::move(starts), std::move(types), ps+3, strand, minlen);
-                            if (arr.back().len < minlen || arr.back().len > 50000) arr.pop_back();
+                            arr.emplace_back(&seq, std::move(starts), std::move(types), (int) (ps+3), strand, minlen);
+                            if (arr.back().len < (int) minlen || arr.back().len > 50000) arr.pop_back();
                             else { arr.back().init(); pcount ++; }
                             starts.clear(); types.clear();
                         }
@@ -696,20 +697,20 @@ namespace bioinfo {
                     if (seq.circ) {
                         if (pcount > 0) {
                             orf &back = arr.back();
-                            if (back.end > seq.len) cache.push_back(back);
+                            if ((size_t) back.end > seq.len) cache.push_back(back);
                         }
                         count += pcount;
                     } else if (starts.size()) {
-                        arr.emplace_back(&seq, std::move(starts), std::move(types), seq.len, strand, minlen);
-                        if (arr.back().len < minlen || arr.back().len > 50000) arr.pop_back();
+                        arr.emplace_back(&seq, std::move(starts), std::move(types), (int) seq.len, strand, minlen);
+                        if (arr.back().len < (int) minlen || arr.back().len > 50000) arr.pop_back();
                         else arr.back().init(true);
                     }
                 }
                 
                 // remove duplicate ORFs found twice around a circular scaffold
                 if (seq.circ) for (const auto& cached : cache) {
-                    for (int i = size()-count; i < size(); i ++) {
-                        if (cached.end - (*this)[i].end == seq.len) {
+                    for (int i = (int) (size()-count); i < (int) size(); i ++) {
+                        if (cached.end == (*this)[i].end + (int) seq.len) {
                             arr.erase(arr.begin() + i);
                             --count;
                             break;

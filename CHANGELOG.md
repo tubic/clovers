@@ -1,6 +1,11 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## [1.1.1] - 2026-09-22
+
+### Changed
+- ORF coordinates now use signed integers and the G+C counters were widened, removing signed/unsigned conversion and overflow hazards. Prediction results are unchanged from v1.1.0.
+
 ## [1.1.0] - 2026-05-20
 
 ### Changed
