@@ -99,7 +99,7 @@ Write protein translations of genes to the selected file or '-' as stdout.
 * `-d, --fna`  
 Write nucleotide sequences of genes to the selected file or '-' as stdout.
 
-#### CLOVERS Options  
+#### CDS-Finder Options  
 * `-g, --table`  
 Specify a genetic codon table to use (1, 4, 11, 15, 16, 25 or auto). (default: 11)  
 
@@ -112,7 +112,7 @@ Specify the mininum length (nt) of ORFs. (default: 90)
 Treat the default topology as circular. Note that the topology for each sequence can be set by the words "circular" or "linear" appear in the header line (FASTA/GenBank/EMBL), and this option will only take effect when the words "circular" or "linear" do not exist.
 
 * `-p, --proc`  
-Select prediction procedure (single or meta). In meta mode, only the built‑in model is used; no genome‑specific model will be built to avoid false positives from contaminated sequences.
+Select prediction procedure (single or meta). In meta mode, ORFs are revised by TISA-CNN and scored with the built-in unified CDS-MLP; no genome‑specific model is built, to avoid false positives from contaminated sequences. Contig-edge ORFs down to 60 nt are kept in this mode.
 
 * `-s, --thres`  
 Specify putative gene probability score threshold. For chromosomes, the recommended setting is 0.5. For plasmids, viruses, and bacteriophages, the recommended setting is 0.4. (default: 0.5)
@@ -120,15 +120,15 @@ Specify putative gene probability score threshold. For chromosomes, the recommen
 * `-t, --train`  
 Write (if none exists) or use the specified training file.
 
-#### TriTISA Options  
-* `-n, --bypass`  
-Bypass TriTISA and output the longest ORFs (most left 5'-end).
+#### TIS-Reviser Options  
+* `-M, --model`  
+Force the TIS reviser: `hmm` (TriTISA), `cnn` (TISA-CNN), or `none` (output the longest ORFs, most left 5'-end). Default: chosen by procedure and genome size — meta mode always uses TISA-CNN; single mode uses TISA-CNN for genomes up to 20 kb and TriTISA above 20 kb.
 
-* `-M,--maxiter`  
-Max iteration times for RBS revision. (default: 20)
+* `--maxiter`  
+Max iteration times for RBS revision (TriTISA only). (default: 20)
 
 * `-R,--rbs`  
-Write (if none exists) or use the specified RBS model file.
+Write (if none exists) or use the specified RBS model file (TriTISA only).
 
 #### GOP-Reporter options:  
 * `-L, --min-olen`  
@@ -206,8 +206,8 @@ SQ
     ##gff-version 3
     # trans_tbl: 11
     # NC_000913.3	4641652 bp	circular	UNA	19-MAY-2026
-    NC_000913.3	CLOVERS_v1.1.1	CDS	337	2799	0.974	+	0	ID=ORF000001;partial=00
-    NC_000913.3	CLOVERS_v1.1.1	CDS	2801	3733	0.968	+	0	ID=ORF000002;partial=00
+    NC_000913.3	CLOVERS_v1.2.0	CDS	337	2799	0.974	+	0	ID=ORF000001;partial=00
+    NC_000913.3	CLOVERS_v1.2.0	CDS	2801	3733	0.968	+	0	ID=ORF000002;partial=00
     . . .
     ```
     **GenBank File Example:**
@@ -219,13 +219,13 @@ SQ
                          /locus_tag=ORF000001
                          /transl_table=11
                          /codon_start=1
-                         /note="Derived by protein-coding gene prediction method: CLOVERS_v1.1.1"
+                         /note="Derived by protein-coding gene prediction method: CLOVERS_v1.2.0"
                          /translation="MRVLKFGG...LGV*"
          CDS             2801..3733
                          /locus_tag=ORF000002
                          /transl_table=11
                          /codon_start=1
-                         /note="Derived by protein-coding gene prediction method: CLOVERS_v1.1.1"
+                         /note="Derived by protein-coding gene prediction method: CLOVERS_v1.2.0"
                          /translation="MVKVYAPA...LEN*"
     . . .
     ORIGIN
@@ -277,6 +277,7 @@ CLOVERS/
 │   │                         #   encoding, heuristic models (MLP / PMM /
 │   │                         #   RBF-SVM wrappers), I/O utilities
 │   ├── svm.hpp               # libsvm C interface (types, training, scoring)
+│   ├── cnn.hpp               # embedded TISA-CNN and unified CDS-MLP weights
 │   └── cxxopts.hpp           # vendored command-line option parser
 ├── src/
 │   ├── Clovers.cpp           # main gene-finder program (single & meta
@@ -291,11 +292,13 @@ CLOVERS/
 │   └── svm.cpp               # libsvm implementation used by the RBF-SVM model
 ├── scripts/                  # Python training / evaluation toolchain
 │   ├── labeler(.exe) *       # compiled Labeler binary (training-data generator)
-│   ├── 01.GC_Partition.py    # GC-binning of positive/negative datasets
-│   ├── 02.Train.py           # trains the heuristic models used in meta mode
-│   ├── 03.Eval.py            # evaluates predicted vs. reference CDS features
-│   ├── 04.Test_Speed.py      # runtime benchmark of clovers vs. other tools
-│   ├── 05.Neg_Ctrl.py        # decoy (negative-control) genome generator
+│   ├── 01.GC_Partition.py    # GC partitioning + TIS-CNN window dataset
+│   ├── 02.Build_Samples.py   # labeled CDS-model training samples
+│   ├── 03.Train_MLP.py       # trains the per-GC-bin heuristic MLP models
+│   ├── 04.Train_CNN.py       # trains the TISA-CNN start-site model
+│   ├── 05.Eval.py            # evaluates predicted vs. reference CDS features
+│   ├── 06.Test_Speed.py      # runtime benchmark of clovers vs. other tools
+│   ├── 07.Neg_Ctrl.py        # decoy (negative-control) genome generator
 │   ├── Zcurve.pyx            # Cython Z-curve encoder used by the scripts
 │   ├── setup.py              # builds the Zcurve extension in place
 │   ├── requirements.txt

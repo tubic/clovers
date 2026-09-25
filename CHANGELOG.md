@@ -1,6 +1,19 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## [1.2.0] - 2026-09-25
+
+### Added
+- A pre-trained TIS model and a reinforcement-learning-trained CDS model for the metagenomic procedure.
+- `-M/--model` option to force the TIS reviser (`hmm`, `cnn` or `none`). By default the reviser is chosen by the procedure and the genome size.
+
+### Changed
+- Option groups renamed: `CLOVERS` -> `CDS-Finder`, `TriTISA` -> `TIS-Reviser`.
+- `--maxiter` no longer has the `-M` short form (now used by `--model`).
+
+### Removed
+- `-n/--bypass`; use `-M none` instead.
+
 ## [1.1.1] - 2026-09-22
 
 ### Changed

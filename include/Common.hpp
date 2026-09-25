@@ -3,9 +3,9 @@
  * 
  * @copyright (C)2026 TUBIC, Tianjin University
  * @authors:  Zetong Z, You Z, Lin Y*, Gao F*
- * @version   1.1.1
+ * @version   1.2.0
  * @date      2026-05-01
- * @modified  2026-09-22
+ * @modified  2026-09-25
  * @license:  GNU-GPLv3
  */
 #pragma once
@@ -44,6 +44,9 @@
 /* Metagenomic model parameters */
 extern const float META[];
 
+/* TISA-CNN and unified CDS-MLP embedded weights */
+#include "cnn.hpp"
+
 /* embedded MLP weights are IEEE-754 binary32 (see src/Meta.cpp) */
 static_assert(sizeof(float) == 4, "embedded MLP weights require 32-bit float");
 /* system clock */
@@ -51,7 +54,7 @@ static_assert(sizeof(float) == 4, "embedded MLP weights require 32-bit float");
 /* to_string */
 #define Str std::to_string
 /* software version */
-#define VERSION "CLOVERS_v1.1.1"
+#define VERSION "CLOVERS_v1.2.0"
 /* no throw memory error new */
 #define NEW new (std::nothrow)
 /* The buffer size for file reading. */
@@ -328,7 +331,6 @@ namespace bioinfo {
         size_t                len;  // length
         size_t         gc_count=0;  // G+C count
         bool                 circ;  // circular
-    /*  flt_arr             curve;  // GC-profile */
         scaffold() {};
         scaffold(str &header, str &&origin, bool circ) {
             // FASTA
@@ -642,8 +644,6 @@ namespace bioinfo {
         void yield(str proc, float thres, orfs &genes) {
             for (int i = 0, j = 0; i < size(); i ++) {
                 float score = std::max(arr[i].i_score, arr[i].c_score);
-                // empirical score calibration for metagenomic mode
-                if (proc == "Metagenome") score = std::pow(score, 0.64F);
                 if ((arr[i].t_score = score) >= thres) 
                     genes.arr.push_back(arr[i].froze());
             }
@@ -661,8 +661,9 @@ namespace bioinfo {
                 data[i*DIM+DIM+i] = arr[i].r_score;
             return *this;
         }
-        /* seek all the orfs in the sequence */
-        void locate_orfs(scaffold &seq, str_arr &start_types, str_arr &stop_types, size_t minlen) {
+        /* seek all the orfs in the sequence; meta_edges relaxes the minimum
+         * length of contig-edge (partial) ORFs to 60 nt */
+        void locate_orfs(scaffold &seq, str_arr &start_types, str_arr &stop_types, size_t minlen, bool meta_edges = false) {
             std::vector<orf> cache;
             for (int strand = 0; strand < 2; strand ++) {
                 size_t count = 0;
@@ -689,7 +690,10 @@ namespace bioinfo {
                             types.push_back(match);
                         } else if (starts.size() && seq.codon_type(ps, strand, stop_types) > -1) {
                             arr.emplace_back(&seq, std::move(starts), std::move(types), (int) (ps+3), strand, minlen);
-                            if (arr.back().len < (int) minlen || arr.back().len > 50000) arr.pop_back();
+                            // codon type 5 marks a partial 5'-end (contig edge)
+                            bool partial5 = (!arr.back().types.empty() && arr.back().types[0] == 5);
+                            int ml = (meta_edges && partial5) ? 60 : (int) minlen;
+                            if (arr.back().len < ml || arr.back().len > 50000) arr.pop_back();
                             else { arr.back().init(); pcount ++; }
                             starts.clear(); types.clear();
                         }
@@ -702,7 +706,8 @@ namespace bioinfo {
                         count += pcount;
                     } else if (starts.size()) {
                         arr.emplace_back(&seq, std::move(starts), std::move(types), (int) seq.len, strand, minlen);
-                        if (arr.back().len < (int) minlen || arr.back().len > 50000) arr.pop_back();
+                        int ml = meta_edges ? 60 : (int) minlen;  // stop-less tail ORF
+                        if (arr.back().len < ml || arr.back().len > 50000) arr.pop_back();
                         else arr.back().init(true);
                     }
                 }
@@ -827,19 +832,6 @@ namespace zcurve {
             }
         }
     }
-/*
-    inline void gc_profile(bioinfo::genome &scaffolds, float gc_cont) {
-        float k = 1.0F - 2 * gc_cont;
-        for (auto &scaffold : scaffolds) {
-            scaffold.curve.resize(scaffold.len);
-            float cnt = 0.0F;
-            for (int i = 0; i < scaffold.len; i ++) {
-                cnt += Z_COORD[scaffold.at(i, 0)][Z];
-                scaffold.curve[i] = cnt - k * i;
-            }
-        }
-    }
-*/
     /* dump Z-curve features and labels of selected ORFs to a binary file */
     inline void save_bin(str &file, bioinfo::orfs &orfs, int_arr &indices) {
         std::ofstream handle(file, std::ios::binary);
@@ -1349,6 +1341,690 @@ namespace model {
             }
         }
         ~svm() { svm_free_model_content(model); }
+    };
+    /* weight-block geometry helpers. */
+    constexpr int tis_l3(int wc) noexcept {
+        int l1 = (wc + 2*3 - 7) / 2 + 1;
+        int l2 = (l1 + 2*2 - 5) / 2 + 1;
+        return (l2 + 2*2 - 5) / 2 + 1;
+    }
+    /* number of float weights in one weight block */
+    constexpr int tis_n_f(int wc, int n_cls) noexcept {
+        const int c1 = 32, c2 = 48, c3 = 64, c4 = 96, f1 = 64;
+        const int l3 = tis_l3(wc);
+        return c1*9*7 + c1 + c2*c1*5 + c2 + c3*c2*5 + c3
+            + c4*c3*3 + c4 + f1*c4*l3 + f1 + f1*n_cls + n_cls;
+    }
+    /* TIS-CNN: scores the in-frame start-codon candidates of every ORF and
+     * revises the start to the highest-scoring candidate; the winning
+     * probability is stored in orf::r_score.  Weights are embedded
+     * (cnn.hpp); all scaffold indexing is circular (origin-wrapping). */
+    class cnn {
+      private:
+        /* window and layer geometry, fixed by the embedded model */
+        static constexpr int WC = embedded::TIS_WIN_CODONS;   // window, codons
+        static constexpr int HALF = (WC * 3 - 3) / 2;         // window half, bp
+        static constexpr int C1 = 32, C2 = 48, C3 = 64, C4 = 96, F1 = 64;
+        static constexpr int L0 = WC;
+        static constexpr int L1 = (L0 + 2*3 - 7) / 2 + 1;     // conv k7 s2 pad3
+        static constexpr int L2 = (L1 + 2*2 - 5) / 2 + 1;     // conv k5 s2 pad2
+        static constexpr int L3 = (L2 + 2*2 - 5) / 2 + 1;     // conv k5 s2 pad2
+        static constexpr int N_CLS = embedded::TIS_N_CLASSES;
+        static constexpr unsigned POS_MASK = embedded::TIS_POS_MASK;
+        static constexpr int IN_CH = 9;
+        static constexpr int N_F = tis_n_f(WC, embedded::TIS_N_CLASSES);
+        static_assert(N_F == embedded::TIS_N_FLOATS,
+                      "embedded TIS model size mismatch");
+        static_assert(N_CLS >= 2 && N_CLS <= 8,
+                      "embedded TIS model class count out of range");
+
+        bioinfo::orfs &orfs;                 // ORF set to revise
+        /* early exit over each ORF's candidate list; ee_k == 0 disables */
+        int       ee_k = 0;
+        float     ee_theta = 0.0F;
+
+        /* encode the (2*HALF+3) bp window centred on candidate start s
+         * into out (IN_CH, WC), channel-major; positions wrap modulo the
+         * scaffold length */
+        static void featurize(bioinfo::orf &o, size_t s, float *out) noexcept {
+            const str &chr = o.host->strands[o.strand];
+            const int len = (int) o.host->len;
+            constexpr int ZN = sizeof(Z_COORD) / sizeof(Z_COORD[0]);
+            constexpr int W = 3*L0;
+            unsigned char win[W];
+            for (int b = 0; b < W; b++) {
+                int idx = ((int) s + b - HALF) % len;
+                idx += (idx < 0) * len;
+                win[b] = (unsigned char) chr[idx];
+            }
+            for (int b = 0; b < W; b++) {
+                const float *v = win[b] < ZN ? Z_COORD[win[b]] : Z_COORD[0];
+                const int codon = b / 3, k = b % 3;
+                out[(k*3+0)*L0 + codon] = v[0];
+                out[(k*3+1)*L0 + codon] = v[1];
+                out[(k*3+2)*L0 + codon] = v[2];
+            }
+        }
+
+        /* gelu(x) = 0.5x(1+erf(x/sqrt(2))); erf by polynomial approximation */
+        static inline float gelu(float x) noexcept {
+            const float z = x * 0.70710678F;
+            const float az = std::fabs(z);
+            const float t = 1.0F / (1.0F + 0.3275911F * az);
+            const float poly = t * (0.254829592F + t * (-0.284496736F +
+                t * (1.421413741F + t * (-1.453152027F + t * 1.061405429F))));
+            const float e = 1.0F - poly * std::exp(-az * az);
+            return 0.5F * x * (1.0F + (z < 0.0F ? -e : e));
+        }
+
+        /* y[t] += w * x[t] over t in [0,n) — contiguous FMA (scalar tail) */
+        static inline void axpy_f(const float *x, float w, float *y,
+                                  int n) noexcept {
+            #ifdef __FMA__
+            const __m256 vw = _mm256_set1_ps(w);
+            int t = 0;
+            for (; t + 7 < n; t += 8)
+                _mm256_storeu_ps(y + t, _mm256_fmadd_ps(vw,
+                    _mm256_loadu_ps(x + t), _mm256_loadu_ps(y + t)));
+            for (; t < n; t++) y[t] += w * x[t];
+            #else
+            for (int t = 0; t < n; t++) y[t] += w * x[t];
+            #endif
+        }
+
+#if defined(__AVX2__) && defined(__FMA__)
+        /* vectorised exp (polynomial approximation) */
+        static inline __m256 exp256_ps(__m256 x) noexcept {
+            const __m256 exp_hi = _mm256_set1_ps(88.3762626647949f);
+            const __m256 exp_lo = _mm256_set1_ps(-88.3762626647949f);
+            const __m256 log2e  = _mm256_set1_ps(1.44269504088896341f);
+            x = _mm256_min_ps(_mm256_max_ps(x, exp_lo), exp_hi);
+            __m256 fx = _mm256_fmadd_ps(x, log2e, _mm256_set1_ps(0.5f));
+            __m256i emm0 = _mm256_cvttps_epi32(fx);
+            __m256 tmp = _mm256_cvtepi32_ps(emm0);
+            __m256 mask = _mm256_cmp_ps(tmp, fx, _CMP_GT_OQ);
+            mask = _mm256_and_ps(mask, _mm256_set1_ps(1.0f));
+            fx = _mm256_sub_ps(tmp, mask);
+            x = _mm256_fnmadd_ps(fx, _mm256_set1_ps(0.693359375f), x);
+            x = _mm256_fnmadd_ps(fx, _mm256_set1_ps(-2.12194440e-4f), x);
+            __m256 y = _mm256_set1_ps(1.9875691500E-4f);
+            y = _mm256_fmadd_ps(y, x, _mm256_set1_ps(1.3981999507E-3f));
+            y = _mm256_fmadd_ps(y, x, _mm256_set1_ps(8.3334519073E-3f));
+            y = _mm256_fmadd_ps(y, x, _mm256_set1_ps(4.1665795894E-2f));
+            y = _mm256_fmadd_ps(y, x, _mm256_set1_ps(1.6666665459E-1f));
+            y = _mm256_fmadd_ps(y, x, _mm256_set1_ps(5.0000001201E-1f));
+            const __m256 xx = _mm256_mul_ps(x, x);
+            y = _mm256_fmadd_ps(y, xx, x);
+            y = _mm256_add_ps(y, _mm256_set1_ps(1.0f));
+            emm0 = _mm256_cvttps_epi32(fx);
+            emm0 = _mm256_add_epi32(emm0, _mm256_set1_epi32(127));
+            emm0 = _mm256_slli_epi32(emm0, 23);
+            return _mm256_mul_ps(y, _mm256_castsi256_ps(emm0));
+        }
+
+        /* gelu over 8 lanes */
+        static inline __m256 gelu8(__m256 x) noexcept {
+            const __m256 sign_mask = _mm256_set1_ps(-0.0F);
+            __m256 z = _mm256_mul_ps(x, _mm256_set1_ps(0.70710678F));
+            __m256 az = _mm256_andnot_ps(sign_mask, z);
+            __m256 t = _mm256_div_ps(_mm256_set1_ps(1.0F),
+                _mm256_fmadd_ps(_mm256_set1_ps(0.3275911F), az,
+                                _mm256_set1_ps(1.0F)));
+            __m256 poly = _mm256_set1_ps(1.061405429F);
+            poly = _mm256_fmadd_ps(poly, t, _mm256_set1_ps(-1.453152027F));
+            poly = _mm256_fmadd_ps(poly, t, _mm256_set1_ps(1.421413741F));
+            poly = _mm256_fmadd_ps(poly, t, _mm256_set1_ps(-0.284496736F));
+            poly = _mm256_fmadd_ps(poly, t, _mm256_set1_ps(0.254829592F));
+            poly = _mm256_mul_ps(poly, t);
+            __m256 e = _mm256_fnmadd_ps(poly,
+                exp256_ps(_mm256_mul_ps(_mm256_sub_ps(_mm256_setzero_ps(), az), az)),
+                _mm256_set1_ps(1.0F));
+            /* copysign(e, z) */
+            e = _mm256_or_ps(e, _mm256_and_ps(z, sign_mask));
+            return _mm256_mul_ps(_mm256_set1_ps(0.5F),
+                _mm256_mul_ps(x, _mm256_add_ps(_mm256_set1_ps(1.0F), e)));
+        }
+#endif
+
+        /* stride-2 conv1d + GELU, zero padding k/2; x: (Cin,Lin) ->
+         * y: (Cout,Lout) */
+        static void conv_s2(const float *x, int Cin, int Lin,
+                            const float *W, const float *b, int Cout, int k,
+                            float *xe, float *xo, float *y) noexcept {
+            const int pad = k / 2, Lout = (Lin + 2*pad - k) / 2 + 1;
+            const int Le = (Lin + 2*pad + 1) / 2;
+            for (int c = 0; c < Cin; c++) {
+                const float *xc = x + (size_t) c * Lin;
+                float *ec = xe + (size_t) c * Le, *oc = xo + (size_t) c * Le;
+                for (int i = 0; i < Le; i++) {
+                    const int q = 2 * i - pad;
+                    ec[i] = (q >= 0 && q < Lin) ? xc[q] : 0.0F;
+                    oc[i] = (q + 1 >= 0 && q + 1 < Lin) ? xc[q + 1] : 0.0F;
+                }
+            }
+            for (int o = 0; o < Cout; o++) {
+                float *yo = y + (size_t) o * Lout;
+                for (int t = 0; t < Lout; t++) yo[t] = b[o];
+                const float *wo = W + (size_t) o * Cin * k;
+                for (int c = 0; c < Cin; c++) {
+                    const float *wc = wo + (size_t) c * k;
+                    const float *ec = xe + (size_t) c * Le;
+                    const float *oc = xo + (size_t) c * Le;
+                    for (int j = 0; j < k; j += 2)
+                        axpy_f(ec + j / 2, wc[j], yo, Lout);
+                    for (int j = 1; j < k; j += 2)
+                        axpy_f(oc + (j - 1) / 2, wc[j], yo, Lout);
+                }
+                for (int t = 0; t < Lout; t++) yo[t] = gelu(yo[t]);
+            }
+        }
+
+        /* stride-1 conv1d + GELU, zero padding k/2 */
+        static void conv_s1(const float *x, int Cin, int Lin,
+                            const float *W, const float *b, int Cout, int k,
+                            float *xp, float *y) noexcept {
+            const int pad = k / 2, Lp = Lin + 2*pad;
+            for (int c = 0; c < Cin; c++) {
+                float *pc = xp + (size_t) c * Lp;
+                for (int i = 0; i < pad; i++) pc[i] = 0.0F;
+                std::memcpy(pc + pad, x + (size_t) c * Lin, Lin * sizeof(float));
+                for (int i = 0; i < pad; i++) pc[pad + Lin + i] = 0.0F;
+            }
+            for (int o = 0; o < Cout; o++) {
+                float *yo = y + (size_t) o * Lin;
+                for (int t = 0; t < Lin; t++) yo[t] = b[o];
+                const float *wo = W + (size_t) o * Cin * k;
+                for (int c = 0; c < Cin; c++) {
+                    const float *wc = wo + (size_t) c * k;
+                    const float *pc = xp + (size_t) c * Lp;
+                    for (int j = 0; j < k; j++)
+                        axpy_f(pc + j, wc[j], yo, Lin);
+                }
+                for (int t = 0; t < Lin; t++) yo[t] = gelu(yo[t]);
+            }
+        }
+
+        /* featurize one candidate into lane `lane` of the group tile buf */
+        static void featurize_lane(const bioinfo::scaffold *scaf, int strand,
+                                   size_t s, float *buf, int lane) noexcept {
+            const str &chr = scaf->strands[strand];
+            const int len = (int) scaf->len;
+            constexpr int ZN = sizeof(Z_COORD) / sizeof(Z_COORD[0]);
+            constexpr int W = 3 * L0;
+            unsigned char win[W];
+            for (int b = 0; b < W; b++) {
+                int idx = ((int) s + b - HALF) % len;
+                idx += (idx < 0) * len;
+                win[b] = (unsigned char) chr[idx];
+            }
+            for (int b = 0; b < W; b++) {
+                const float *v = win[b] < ZN ? Z_COORD[win[b]] : Z_COORD[0];
+                const int codon = b / 3, k = b % 3;
+                buf[((k*3+0)*L0 + codon) * 8 + lane] = v[0];
+                buf[((k*3+1)*L0 + codon) * 8 + lane] = v[1];
+                buf[((k*3+2)*L0 + codon) * 8 + lane] = v[2];
+            }
+        }
+
+#if defined(__AVX2__) && defined(__FMA__)
+        /* batched forward: 8 candidates per group, one per SIMD lane */
+
+        /* conv1d + GELU over a group; x: (Cin, Lin, 8), y: (Cout, Lout, 8) */
+        static void conv_b8(const float *x, int Cin, int Lin,
+                            const float *W, const float *b, int Cout, int k,
+                            int s, float *xp, float *y) noexcept {
+            const int pad = k / 2, Lp = Lin + 2*pad, Lout = (Lin + 2*pad - k) / s + 1;
+            for (int c = 0; c < Cin; c++) {
+                float *pc = xp + (size_t) c * Lp * 8;
+                for (int i = 0; i < pad * 8; i++) pc[i] = 0.0F;
+                std::memcpy(pc + pad * 8, x + (size_t) c * Lin * 8,
+                            (size_t) Lin * 8 * sizeof(float));
+                for (int i = 0; i < pad * 8; i++) pc[(pad + Lin) * 8 + i] = 0.0F;
+            }
+            for (int o0 = 0; o0 < Cout; o0 += 4) {
+                const int no = std::min(4, Cout - o0);
+                for (int t = 0; t < Lout; t++) {
+                    __m256 acc[4];
+                    for (int i = 0; i < no; i++)
+                        acc[i] = _mm256_set1_ps(b[o0 + i]);
+                    for (int c = 0; c < Cin; c++) {
+                        const float *pc = xp + ((size_t) c * Lp + (size_t) t * s) * 8;
+                        for (int j = 0; j < k; j++) {
+                            const __m256 xv = _mm256_loadu_ps(pc + (size_t) j * 8);
+                            for (int i = 0; i < no; i++)
+                                acc[i] = _mm256_fmadd_ps(
+                                    _mm256_set1_ps(W[((size_t) (o0 + i) * Cin + c) * k + j]),
+                                    xv, acc[i]);
+                        }
+                    }
+                    for (int i = 0; i < no; i++)
+                        _mm256_storeu_ps(y + ((size_t) (o0 + i) * Lout + t) * 8,
+                                         gelu8(acc[i]));
+                }
+            }
+        }
+
+        /* fc1 + GELU over a group; x: (C4*L3, 8), h: (F1, 8) */
+        static void fc1_b8(const float *x, const float *W, const float *b,
+                           float *h) noexcept {
+            constexpr int D = C4 * L3;
+            for (int o = 0; o < F1; o++) {
+                const float *wr = W + (size_t) o * D;
+                __m256 acc = _mm256_set1_ps(b[o]);
+                for (int j = 0; j < D; j++)
+                    acc = _mm256_fmadd_ps(_mm256_set1_ps(wr[j]),
+                        _mm256_loadu_ps(x + (size_t) j * 8), acc);
+                _mm256_storeu_ps(h + (size_t) o * 8, gelu8(acc));
+            }
+        }
+
+        /* fc2 + softmax over a group; h: (F1, 8), out: (N_CLS, 8) probs */
+        static void fc2_b8(const float *h, const float *W, const float *b,
+                           float *out) noexcept {
+            __m256 lg[N_CLS], mx;
+            for (int c = 0; c < N_CLS; c++) {
+                const float *wc = W + (size_t) c * F1;
+                __m256 acc = _mm256_set1_ps(b[c]);
+                for (int o = 0; o < F1; o++)
+                    acc = _mm256_fmadd_ps(_mm256_set1_ps(wc[o]),
+                        _mm256_loadu_ps(h + (size_t) o * 8), acc);
+                lg[c] = acc;
+            }
+            mx = lg[0];
+            for (int c = 1; c < N_CLS; c++) mx = _mm256_max_ps(mx, lg[c]);
+            __m256 denom = _mm256_setzero_ps();
+            for (int c = 0; c < N_CLS; c++) {
+                lg[c] = exp256_ps(_mm256_sub_ps(lg[c], mx));
+                denom = _mm256_add_ps(denom, lg[c]);
+            }
+            for (int c = 0; c < N_CLS; c++)
+                _mm256_storeu_ps(out + (size_t) c * 8,
+                                 _mm256_div_ps(lg[c], denom));
+        }
+
+        /* batched CPU scoring: flat candidate list -> per-class
+         * probabilities (n_cand, N_CLS); OpenMP-parallel over groups */
+        static void score_candidates_cpu8(
+                const std::vector<const bioinfo::scaffold*> &scafs,
+                const std::vector<int> &c_scaf,
+                const std::vector<int> &c_strand,
+                const std::vector<int64_t> &c_start,
+                float *out_probs) {
+            const size_t n = c_start.size();
+            const int in_ch = IN_CH;
+            const float *w = embedded::TIS_W;
+            const float *c1w = w;
+            const float *c1b = c1w + C1 * in_ch * 7;
+            const float *c2w = c1b + C1;
+            const float *c2b = c2w + C2 * C1 * 5;
+            const float *c3w = c2b + C2;
+            const float *c3b = c3w + C3 * C2 * 5;
+            const float *c4w = c3b + C3;
+            const float *c4b = c4w + C4 * C3 * 3;
+            const float *f1w = c4b + C4;
+            const float *f1b = f1w + F1 * C4 * L3;
+            const float *f2w = f1b + F1;
+            const float *f2b = f2w + (size_t) F1 * N_CLS;
+        #ifdef _OPENMP
+            #pragma omp parallel for schedule(dynamic, 512)
+        #endif
+            for (long g0 = 0; g0 < (long) n; g0 += 8) {
+                const int lanes = (int) std::min<long>(8, (long) n - g0);
+                float x[IN_CH * L0 * 8];
+                for (int lane = 0; lane < 8; lane++) {
+                    /* tail groups repeat the last valid candidate (unused) */
+                    const int q = lane < lanes ? lane : lanes - 1;
+                    featurize_lane(scafs[c_scaf[g0 + q]], c_strand[g0 + q],
+                                   (size_t) c_start[g0 + q], x, lane);
+                }
+                float a1[C1 * L1 * 8], a2[C2 * L2 * 8], a3[C3 * L3 * 8],
+                      a4[C4 * L3 * 8], h[F1 * 8], pr[N_CLS * 8];
+                float p1[(L0 + 6) * IN_CH * 8], p2[(L1 + 4) * C1 * 8],
+                      p3[(L2 + 4) * C2 * 8], p4[(L3 + 2) * C3 * 8];
+                conv_b8(x, in_ch, L0, c1w, c1b, C1, 7, 2, p1, a1);
+                conv_b8(a1, C1, L1, c2w, c2b, C2, 5, 2, p2, a2);
+                conv_b8(a2, C2, L2, c3w, c3b, C3, 5, 2, p3, a3);
+                conv_b8(a3, C3, L3, c4w, c4b, C4, 3, 1, p4, a4);
+                fc1_b8(a4, f1w, f1b, h);
+                fc2_b8(h, f2w, f2b, pr);
+                for (int c = 0; c < N_CLS; c++)
+                    for (int lane = 0; lane < lanes; lane++)
+                        out_probs[((size_t) g0 + lane) * N_CLS + c] =
+                            pr[c * 8 + lane];
+            }
+        }
+#endif
+
+        /* forward pass of one embedded TIS model -> class logits */
+        static void forward_logits(const float *w, const float *x, float *logits,
+                                   int in_ch) {
+            /* scratch sized by the compile-time window geometry */
+            float a1[C1*L1], a2[C2*L2], a3[C3*L3], a4[C4*L3];
+            float d1e[IN_CH*((L0+7)/2)], d1o[IN_CH*((L0+7)/2)];
+            float d2e[C1*((L1+5)/2)], d2o[C1*((L1+5)/2)];
+            float d3e[C2*((L2+5)/2)], d3o[C2*((L2+5)/2)];
+            float p3[C3*(L3+2)];
+            const float *c1w = w;
+            const float *c1b = c1w + C1*in_ch*7;
+            const float *c2w = c1b + C1;
+            const float *c2b = c2w + C2*C1*5;
+            const float *c3w = c2b + C2;
+            const float *c3b = c3w + C3*C2*5;
+            const float *c4w = c3b + C3;
+            const float *c4b = c4w + C4*C3*3;
+            const float *f1w = c4b + C4;
+            const float *f1b = f1w + F1*C4*L3;
+            const float *f2w = f1b + F1;
+            const float *f2b = f2w + (size_t) F1*N_CLS;
+            conv_s2(x,  in_ch, L0, c1w, c1b, C1, 7, d1e, d1o, a1);
+            conv_s2(a1, C1, L1, c2w, c2b, C2, 5, d2e, d2o, a2);
+            conv_s2(a2, C2, L2, c3w, c3b, C3, 5, d3e, d3o, a3);
+            conv_s1(a3, C3, L3, c4w, c4b, C4, 3, p3, a4);
+            /* flatten (C4,L3) channel-major -> fc1 -> GELU -> fc2 */
+            float h[F1];
+            for (int o = 0; o < F1; o++)
+                h[o] = gelu(dot_ff(f1w + (size_t) o*C4*L3, a4, C4*L3) + f1b[o]);
+            for (int c = 0; c < N_CLS; c++) {
+                float v = f2b[c];
+                for (int o = 0; o < F1; o++) v += f2w[(size_t) c*F1 + o] * h[o];
+                logits[c] = v;
+            }
+        }
+
+
+        /* Batched revise: collect every ORF's candidate starts into one flat
+         * list, score them with the AVX2 batch-8 backend (scalar fallback on
+         * non-AVX2 builds), then run the per-ORF argmax decision on the
+         * host. */
+        int revise_batched(float edge_anchor = 0.7F) {
+            const int count = (int) orfs.size();
+
+            /* per-class probs -> positive-class mass / ranking score */
+            auto pos_mass = [](const float *p) noexcept {
+                float v = 0.0F;
+                for (int c = 0; c < N_CLS; c++)
+                    if (POS_MASK & (1u << c)) v += p[c];
+                return v;
+            };
+
+            /* collect every ORF's candidates into flat arrays */
+            std::vector<const bioinfo::scaffold*> scafs;
+            std::vector<int> scaf_of(count, -1);
+            std::vector<long> begin(count + 1, 0);
+            std::vector<char> skip(count, 0);
+            const bioinfo::scaffold *last_host = nullptr;
+            int last_id = -1;
+            for (int i = 0; i < count; i++) {          // serial: host dedup
+                bioinfo::orf &orf = orfs[i];
+                if (orf.starts.empty()) {
+                    skip[i] = 1;
+                    begin[i + 1] = begin[i];
+                    continue;
+                }
+                if (orf.host != last_host) {
+                    last_id = -1;
+                    for (size_t k = 0; k < scafs.size(); k++)
+                        if (scafs[k] == orf.host) { last_id = (int) k; break; }
+                    if (last_id < 0) {
+                        last_id = (int) scafs.size();
+                        scafs.push_back(orf.host);
+                    }
+                    last_host = orf.host;
+                }
+                scaf_of[i] = last_id;
+                long nc = (long) orf.starts.size();
+                if (ee_k > 0 && nc > ee_k) nc = ee_k;      // round 1 only
+                begin[i + 1] = begin[i] + nc;
+            }
+            const size_t n_cand = (size_t) begin[count];
+            if (n_cand == 0)
+                return 0;
+            std::vector<int> c_scaf(n_cand), c_strand(n_cand);
+            std::vector<int64_t> c_start(n_cand);
+        #ifdef _OPENMP
+            #pragma omp parallel for schedule(static)
+        #endif
+            for (int i = 0; i < count; i++) {
+                if (skip[i]) continue;
+                const bioinfo::orf &orf = orfs[i];
+                long q = begin[i];
+                long n1 = (long) orf.starts.size();
+                if (ee_k > 0 && n1 > ee_k) n1 = ee_k;
+                for (size_t j = 0; j < (size_t) n1; j++, q++) {
+                    c_scaf[q] = scaf_of[i];
+                    c_strand[q] = (int) orf.strand;
+                    c_start[q] = (int64_t) orf.starts[j];
+                }
+            }
+
+            /* scoring backend: flat candidate list -> per-class probabilities */
+            auto score_backend = [&](const std::vector<int> &cs,
+                                     const std::vector<int> &cd,
+                                     const std::vector<int64_t> &ct,
+                                     float *out) {
+                #if defined(__AVX2__) && defined(__FMA__)
+                    score_candidates_cpu8(scafs, cs, cd, ct, out);
+                #else
+                    score_candidates_scalar(scafs, cs, cd, ct, out);
+                #endif
+            };
+
+            /* ---- round 1: the first ee_k candidates of every ORF ---- */
+            flt_arr probs0(n_cand * N_CLS);
+            score_backend(c_scaf, c_strand, c_start, probs0.data());
+            auto s1 = [&](long q) {
+                return pos_mass(probs0.data() + (size_t) q * N_CLS);
+            };
+
+            /* ---- round 2: score the tails of ORFs below the bar ---- */
+            std::vector<int> c2_scaf, c2_strand;
+            std::vector<int64_t> c2_start;
+            std::vector<long> begin2(count + 1, 0);
+            flt_arr probs2;
+            if (ee_k > 0) {
+                for (int i = 0; i < count; i++) {
+                    long add = 0;
+                    if (!skip[i]) {
+                        const long a0 = begin[i], a1 = begin[i + 1];
+                        const long nall = (long) orfs[i].starts.size();
+                        if (nall > a1 - a0) {
+                            float m1 = -1e30F;
+                            for (long q = a0; q < a1; q++)
+                                if (s1(q) > m1) m1 = s1(q);
+                            if (m1 < ee_theta) add = nall - (a1 - a0);
+                        }
+                    }
+                    begin2[i + 1] = begin2[i] + add;
+                }
+                const size_t n2 = (size_t) begin2[count];
+                if (n2 > 0) {
+                    c2_scaf.resize(n2); c2_strand.resize(n2);
+                    c2_start.resize(n2);
+                    #ifdef _OPENMP
+                        #pragma omp parallel for schedule(static)
+                    #endif
+                    for (int i = 0; i < count; i++) {
+                        if (skip[i]) continue;
+                        /* ORFs that exited early have add == 0 and write
+                         * nothing here */
+                        const long add = begin2[i + 1] - begin2[i];
+                        if (add <= 0) continue;
+                        const bioinfo::orf &orf = orfs[i];
+                        long q = begin2[i];
+                        size_t j = (size_t) (begin[i + 1] - begin[i]);
+                        for (long t = 0; t < add; t++, j++, q++) {
+                            c2_scaf[q] = scaf_of[i];
+                            c2_strand[q] = (int) orf.strand;
+                            c2_start[q] = (int64_t) orf.starts[j];
+                        }
+                    }
+                    probs2.resize(n2 * N_CLS);
+                    score_backend(c2_scaf, c2_strand, c2_start, probs2.data());
+                }
+            }
+            auto s2 = [&](long q) {
+                return pos_mass(probs2.data() + (size_t) q * N_CLS);
+            };
+
+            /* final per-ORF decision (host) */
+            int revised = 0;
+            for (int i = 0; i < count; i++) {
+                bioinfo::orf &orf = orfs[i];
+                if (skip[i]) {
+                    /* ORF without any start codon: judge from content
+                     * alone */
+                    orf.r_score = (orf.edge_type >= 5) ? 0.5F : 0.0F;
+                    continue;
+                }
+                const long a0 = begin[i], a1 = begin[i + 1];
+                const int nc = (int) (a1 - a0);
+                int bj = 0;
+                for (int j = 1; j < nc; j++)
+                    if (s1(a0 + j) > s1(a0 + bj)) bj = j;
+                float best_key = s1(a0 + bj);
+                /* round-2 tail of this ORF (empty when it exited early) */
+                const long b2 = begin2[i], e2 = begin2[i + 1];
+                for (long q = b2; q < e2; q++) {
+                    const float v = s2(q);
+                    if (v > best_key) {
+                        best_key = v;
+                        bj = (int) (nc + (q - b2));
+                    }
+                }
+                orf.r_score = (bj < nc)
+                    ? pos_mass(probs0.data() + (size_t) (a0 + bj) * N_CLS)
+                    : pos_mass(probs2.data() + (size_t) (begin2[i] + (bj - nc)) * N_CLS);
+                /* edge fragments: floor the TIS feature */
+                if (orf.edge_type >= 5 && orf.r_score < 0.5F)
+                    orf.r_score = 0.5F;
+                /* edge ORFs: only move the start to a strong candidate */
+                const bool genuine = orf.edge_type < 5 || best_key >= edge_anchor;
+                if (orf.starts[bj] != orf.start && genuine
+                    && !orf.set_start(bj))
+                    revised++;
+            }
+            return revised;
+        }
+
+      public:
+        explicit cnn(bioinfo::orfs &orfs, int ee_k = 0, float ee_theta = 0.0F):
+            orfs(orfs), ee_k(ee_k), ee_theta(ee_theta) {}
+
+        int revise(float edge_anchor = 0.7F) {
+            return revise_batched(edge_anchor);
+        }
+
+        /* scalar fallback scorer for non-AVX2 builds */
+        static void score_candidates_scalar(
+                const std::vector<const bioinfo::scaffold*> &scafs,
+                const std::vector<int> &c_scaf,
+                const std::vector<int> &c_strand,
+                const std::vector<int64_t> &c_start,
+                float *out_probs) {
+            float xg[IN_CH * L0 * 8], x[IN_CH * L0];
+            for (size_t q = 0; q < c_start.size(); q++) {
+                featurize_lane(scafs[c_scaf[q]], c_strand[q],
+                               (size_t) c_start[q], xg, 0);
+                for (int ch = 0; ch < IN_CH; ch++)
+                    for (int p = 0; p < L0; p++)
+                        x[ch * L0 + p] = xg[(ch * L0 + p) * 8];
+                float logits[N_CLS];
+                forward_logits(embedded::TIS_W, x, logits, IN_CH);
+                float mx = -1e30F;
+                for (int c = 0; c < N_CLS; c++) mx = std::max(mx, logits[c]);
+                float denom = 0.0F;
+                for (int c = 0; c < N_CLS; c++) denom += std::exp(logits[c] - mx);
+                for (int c = 0; c < N_CLS; c++)
+                    out_probs[q * N_CLS + c] = std::exp(logits[c] - mx) / denom;
+            }
+        }
+    };
+
+    /* GC-conditioned MLP (embedded weights): CDS vs non-CDS scoring
+     * of ORFs.  Weights come from cnn.hpp. */
+    class umlp {
+      private:
+        static constexpr int DIM = 190, HID = 100, CH = 32, NBIN = 61;
+        static constexpr int N_F =
+            HID*DIM + HID + 2*CH + 2*HID*CH + 2*HID + HID + 1
+            + DIM + DIM + NBIN + 2;          // 26308 floats
+        static_assert(N_F == embedded::GC_N_FLOATS,
+                      "embedded CDS model size mismatch");
+
+        bioinfo::orfs &orfs;
+        const float *w1, *b1, *wc1, *bc1, *wc2, *bc2, *wo, *bo,
+                    *mean, *stdd, *thr, *gc_m, *gc_s;
+
+        /* bind the weight pointers into the embedded float block */
+        void bind() {
+            const float *p = embedded::GC_W;
+            w1 = p;                 b1 = w1 + HID*DIM;
+            wc1 = b1 + HID;         bc1 = wc1 + CH;
+            wc2 = bc1 + CH;         bc2 = wc2 + 2*HID*CH;
+            wo = bc2 + 2*HID;       bo = wo + HID;
+            mean = bo + 1;          stdd = mean + DIM;
+            thr = stdd + DIM;
+            gc_m = thr + NBIN;      gc_s = gc_m + 1;
+        }
+
+        static inline int gc_bin(float gc) noexcept {
+            if (gc < 0.20F) return 0;
+            if (gc >= 0.80F) return 60;
+            return (int) ((gc - 0.20F) * 100.0F) + 1;
+        }
+
+        /* forward pass on a feature row -> CDS probability */
+        float forward(const float *row, float gc) const noexcept {
+            float xn[DIM], h[HID], c[CH];
+            for (int j = 0; j < DIM; j++) xn[j] = (row[j] - mean[j]) / stdd[j];
+            for (int i = 0; i < HID; i++) {
+                float acc = b1[i] + dot_ff(w1 + (size_t) i*DIM, xn, DIM);
+                h[i] = acc > 0 ? acc : 0.0F;
+            }
+            const float cs = (gc - *gc_m) / *gc_s;   // conditioner input
+            for (int i = 0; i < CH; i++) {
+                float acc = bc1[i] + wc1[i] * cs;
+                c[i] = acc > 0 ? acc : 0.0F;
+            }
+            float logit = bo[0];
+            for (int i = 0; i < HID; i++) {
+                float g = bc2[i] + dot_ff(wc2 + (size_t) i*CH, c, CH);
+                float b = bc2[HID+i] + dot_ff(wc2 + (size_t) (HID+i)*CH, c, CH);
+                h[i] = h[i] * (1.0F + g) + b;
+                logit += wo[i] * h[i];
+            }
+            return 1.0F / (1.0F + std::exp(-logit));
+        }
+
+      public:
+        explicit umlp(bioinfo::orfs &orfs): orfs(orfs) { bind(); }
+
+        /* complete the feature rows (TIS score) for every ORF and write
+         * the score into orf::c_score; GC content is recomputed on the
+         * revised ORF span.  thr_offset / edge_extra relax the decision
+         * thresholds. */
+        void classify(float thr_offset = 0.0F, float edge_extra = 0.15F) {
+            const float *thr_tab = thr;
+            const int count = (int) orfs.size();
+        #ifdef _OPENMP
+            #pragma omp parallel for schedule(static)
+        #endif
+            for (int i = 0; i < count; i++) {
+                bioinfo::orf &orf = orfs[i];
+                float *row = orfs.row(i);
+                int gc = 0;
+                for (int j = 0; j < (int) orf.len; j++) {
+                    int cb = BASE2ADDR[(unsigned char) orf[j]];
+                    gc += (int) (cb == 1 || cb == 3);
+                }
+                orf.gc_cont = (float) gc / orf.len;
+                row[189] = orf.r_score;
+                float prob = forward(row, orf.gc_cont);
+                int b = gc_bin(orf.gc_cont);
+                orf.c_score = prob - thr_tab[b] + 0.5F + thr_offset
+                              + (orf.edge_type ? edge_extra : 0.0F);
+            }
+        }
     };
 }
 
