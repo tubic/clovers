@@ -487,7 +487,7 @@ class Labeler {
         /* input/output parameters */
         options.add_options("Input/Output")
             ("i,input",    "Specify FASTA/Genbank/EMBL input file or their compressed versions (gzip). (default: stdin)",
-            cxxopts::value<str>())
+            cxxopts::value<str>()->default_value(""))
             
             ("o,output",   "Write results to the output file or '-' as stdout. (default: none)",
             cxxopts::value<str>())

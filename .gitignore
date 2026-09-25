@@ -13,3 +13,8 @@ trash
 *.o
 *.pyd
 *.so
+
+# build products
+/clovers
+/scripts/labeler
+/scripts/Zcurve.c

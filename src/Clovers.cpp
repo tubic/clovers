@@ -12,6 +12,15 @@ char trans_tbl[] = {
     'V', 'V', 'V', 'V', 'A', 'A', 'A', 'A',
     'D', 'D', 'E', 'E', 'G', 'G', 'G', 'G'
 };
+/* decision parameters of the metagenomic route (compile-time constants) */
+constexpr float SENSITIVITY = 0.10F;    // CDS threshold relaxation
+constexpr float EDGE_EXTRA  = 0.15F;    // extra for contig-edge ORFs
+constexpr float EDGE_ANCHOR = 0.70F;    // TIS bar for moving an edge ORF start
+constexpr int   EARLY_EXIT_K     = 5;   // candidates scored per ORF up front
+constexpr float EARLY_EXIT_THETA = 0.60F;  // early-exit confidence bar
+/* single-genome size cutoff (bp) for the TIS reviser preset */
+constexpr size_t SMALL_GENOME = 20000;
+
 /* codons below are 2-bit encoded as T=0, C=1, A=2, G=3 */
 /* start codons */
 char ATG[]{2,0,3}, GTG[]{3,0,3}, TTG[]{0,0,3};
@@ -28,6 +37,7 @@ class Clovers {
     bioinfo::orfs       genes;  // putative genes
     str                 table;  // translation table
     str                  proc;  // procedure
+    size_t      genome_size=0;  // total input length (bp)
     bool        revised=false;  // revise gene start site
     float             gc_cont;  // genome GC content
     /* ATG GTG TTG (AUG GUG UUG) */
@@ -60,7 +70,7 @@ class Clovers {
         /* input/output parameters */
         options.add_options("Input/Output")
             ("i,input",    "Specify FASTA/Genbank/EMBL input file or their compressed versions (gzip). (default: stdin)",
-            cxxopts::value<str>())
+            cxxopts::value<str>()->default_value(""))
             
             ("o,output",   "Write results to the output file or '-' as stdout. (default: none)",
             cxxopts::value<str>())
@@ -75,7 +85,7 @@ class Clovers {
             cxxopts::value<str>());
         
         /* clovers parameters */
-        options.add_options("CLOVERS")
+        options.add_options("CDS-Finder")
             ("g,table",    "Specify a translation table to use (1, 4, 11, 15, 16, 25, auto).",
             cxxopts::value<str>()->default_value("11"))
 
@@ -94,10 +104,14 @@ class Clovers {
             cxxopts::value<str>());
         
         /* tri-tisa parameters */
-        options.add_options("TriTISA")
-            ("n,bypass",   "Bypass TriTISA and output longest ORFs.")
+        options.add_options("TIS-Reviser")
+            ("M,model",    "Force the TIS reviser: 'hmm' (TriTISA), "
+                           "'cnn' (TISA-CNN), or 'none' (output longest "
+                           "ORFs).  Default: chosen by procedure and genome "
+                           "size.",
+            cxxopts::value<str>())
 
-            ("M,maxiter",  "Max iteration times for gene start revision.",
+            ("maxiter",    "Max iteration times for gene start revision.",
             cxxopts::value<uint32_t>()->default_value("20"))
             
             ("R,rbs",      "Write (if none exists) or use the RBS training file.",
@@ -129,7 +143,7 @@ class Clovers {
 
         if (argc <= 1 || args.count("help")) {
             Debug() << "- - - - - - - - - - - - - - - - - - - - - - - - - - - -\n"
-                       "PROTEIN-CODING GENE RECOGNITION SYSTEM OF CLOVERS 1.1.1\n\n"
+                       "PROTEIN-CODING GENE RECOGNITION SYSTEM OF CLOVERS 1.2.0\n\n"
                        "Copyright:  (C) 2003-2026 TUBIC, Tianjin University    \n"
                        "Authors:    Zetong Z, You Z, Lin Y*, Gao F*            \n"
                        "Date:       March 31, 2026                             \n"
@@ -145,11 +159,11 @@ class Clovers {
     }
 
     /* locate candidate ORFs on every scaffold with given start/stop codons */
-    void locate_orfs(str_arr &starts, str_arr &stops, int minlen) {
+    void locate_orfs(str_arr &starts, str_arr &stops, int minlen, bool meta_edges = false) {
         orfs.clear();
         for (auto &seq : genome) {
             if (seq.len >= minlen) {
-                orfs.locate_orfs(seq, starts, stops, minlen);
+                orfs.locate_orfs(seq, starts, stops, minlen, meta_edges);
                 if (orfs.size() > 1000000) {  // guard against pathological inputs
                     std::cerr << "\nError: too many candidate ORFs ( > 1000000)\n";
                     SUB_ERR;
@@ -247,14 +261,17 @@ class Clovers {
             gc_count += seq.gc_count;
         }
         gc_cont = size ? (float) (100.0 * (double) gc_count / size) : 0.0F;
+        genome_size = size;
         Debug() << format_log("Number of Scaffolds:", Str(genome.size()))
                 << format_log("Genome Size:", Str(size) + " bp")
                 << "GC Content:" << std::setw(36) << std::fixed << std::setprecision(2) << gc_cont << " %\n";
         return *this;
     }
 
-    /* Z-curve encode ORFs and score them with GC-specific MLP models */
+    /* Z-curve encode ORFs and score them with GC-specific MLP models
+     * (single-genome route only) */
     Clovers &Init_Scores(bool debug=true) {
+        if (proc == "Metagenome" && debug) return *this;
         zcurve::encode(orfs);
         int gc_intv[N_MODELS] = {0};
         {
@@ -324,14 +341,41 @@ class Clovers {
             ARG_ERR;
         }
         Debug() << format_log("Mininum Gene Length:", Str(minlen) + " nt");
-        locate_orfs(STARTS, STOPS, minlen); 
+        locate_orfs(STARTS, STOPS, minlen, proc == "Metagenome");
         Debug() << format_log("Number of Candidate ORFs:", Str(orfs.size()));
         return *this;
     }
 
-    /* TriTISA: train an RBS position model and revise ORF start sites */
+    /* revise ORF start sites with the selected TIS reviser: the
+     * -M/--model value when given, otherwise the preset for the procedure
+     * and genome size (meta, or single up to SMALL_GENOME -> cnn) */
     Clovers &Revise_Orfs() {
-        if (proc == "Metagenome" || args.count("bypass")) return *this;
+        str tis_model;
+        if (args.count("model")) {
+            tis_model = args["model"].as<str>();
+            for (auto &ch : tis_model) ch = std::tolower(ch);
+            if (tis_model != "hmm" && tis_model != "cnn"
+                    && tis_model != "none") {
+                std::cerr << "\nError: unknown TIS model '" << tis_model
+                          << "' (expected hmm, cnn or none).\n";
+                ARG_ERR;
+            }
+        } else if (proc == "Metagenome" || genome_size <= SMALL_GENOME) {
+            tis_model = "cnn";
+        } else {
+            tis_model = "hmm";
+        }
+        Debug() << format_log("TIS Reviser:", tis_model == "cnn"
+                    ? "TISA-CNN" : tis_model == "hmm"
+                    ? "TriTISA" : "None (longest ORFs)");
+        if (tis_model == "none") return *this;
+        if (tis_model == "cnn") {
+            model::cnn cnn_model(orfs, EARLY_EXIT_K, EARLY_EXIT_THETA);
+            int n_revised = cnn_model.revise(EDGE_ANCHOR);
+            Debug() << format_log("ORFs with Revised Start:", Str(n_revised));
+            revised = true;
+            return *this;
+        }
         Debug() << format_log("Revising RBS Model:", "Round #0", true);
         auto maxiter = args["maxiter"].as<uint32_t>();
         model::pmm model(orfs, table);
@@ -357,9 +401,15 @@ class Clovers {
         return *this;
     }
 
-    /* score ORFs with a genome-specific RBF-SVM and yield putative genes */
+    /* score ORFs (single: genome-specific RBF-SVM; meta: unified CDS-MLP)
+     * and yield putative genes */
     Clovers &Csvm_Scores() {
-        if (proc != "Metagenome") {
+        if (proc == "Metagenome") {
+            /* metagenomic route: unified CDS-MLP scoring */
+            zcurve::encode(orfs);
+            model::umlp umlp_model(orfs);
+            umlp_model.classify(SENSITIVITY, EDGE_EXTRA);
+        } else {
             if (revised) zcurve::encode(orfs.concat());
 
             model::svm model(orfs);

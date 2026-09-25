@@ -1,7 +1,7 @@
 # CLOVERS Makefile
 
 CXX := g++
-CXXFLAGS ?= -DZLIB -fopenmp -mavx -mfma -static -O3
+CXXFLAGS ?= -std=c++17 -DZLIB -fopenmp -mavx -mfma -mavx2 -static -O3
 LDFLAGS ?= -lz
 
 SRC_DIR := src
@@ -38,7 +38,9 @@ $(BUILD_DIR):
 	mkdir $(BUILD_DIR)
 
 # Compile any .cpp to .o (casing matches source filenames)
-$(OBJ_FILES): $(BUILD_DIR)/%.o: $(SRC_DIR)/%.cpp
+HEADERS := $(wildcard $(INC_DIR)/*.hpp)
+
+$(OBJ_FILES): $(BUILD_DIR)/%.o: $(SRC_DIR)/%.cpp $(HEADERS)
 	$(CXX) $(CXXFLAGS) -I$(INC_DIR) -c $< -o $@
 
 # Per-target prerequisites
