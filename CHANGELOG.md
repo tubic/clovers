@@ -1,6 +1,24 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## [1.2.1] - 2026-10-20
+
+### Added
+- `make install` target, honouring `PREFIX` and `DESTDIR`, and a `native` target for a static AVX-enabled build.
+
+### Changed
+- The build honours `CXX`, `CPPFLAGS`, `CXXFLAGS`, `LDFLAGS` and `LDLIBS` from the environment.
+- The default build is dynamically linked and targets baseline x86-64; `-static` and `-mavx -mfma -mavx2` moved behind the `STATIC=` and `NATIVE=` switches.
+- OpenMP is switchable with `OPENMP=0`, and `OPENMP_FLAGS`/`OPENMP_LIBS` can be overridden for toolchains that keep it outside the default search path.
+- `--version` writes to stdout.
+- SVM scoring standardises the feature matrix in place instead of duplicating it, halving the temporary memory of that step.
+- Reduced the SVM prediction cache from 200 to 50, lowering peak memory without affecting scores.
+- `scripts/requirements.txt` records the Python version (3.9-3.11) and minimum versions of all dependencies.
+
+### Fixed
+- Corrected one codon's x-coordinate in the Z-curve feature table (`+1` -> `-1`) in both the C++ table (`include/Common.hpp`) and the Python reference table (`scripts/Zcurve.pyx`). Scores on genomes using that codon change slightly.
+- The helper script directory is consistently named `scripts/`; it had been committed as `Scripts/`, which broke builds from the source archive on case-sensitive filesystems.
+
 ## [1.2.0] - 2026-09-25
 
 ### Added

@@ -1,0 +1,10 @@
+# Python dependencies for the Clovers developer tools (scripts/01-05)
+# Tested with Python 3.9-3.11.
+biopython>=1.79
+numpy>=1.21
+scikit-learn>=1.0
+torch>=1.12
+joblib>=1.1
+matplotlib>=3.5
+Cython>=0.29
+setuptools>=58

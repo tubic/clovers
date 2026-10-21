@@ -143,7 +143,7 @@ class Clovers {
 
         if (argc <= 1 || args.count("help")) {
             Debug() << "- - - - - - - - - - - - - - - - - - - - - - - - - - - -\n"
-                       "PROTEIN-CODING GENE RECOGNITION SYSTEM OF CLOVERS 1.2.0\n\n"
+                       "PROTEIN-CODING GENE RECOGNITION SYSTEM OF CLOVERS 1.2.1\n\n"
                        "Copyright:  (C) 2003-2026 TUBIC, Tianjin University    \n"
                        "Authors:    Zetong Z, You Z, Lin Y*, Gao F*            \n"
                        "Date:       March 31, 2026                             \n"
@@ -152,7 +152,7 @@ class Clovers {
                     << options.help() << "\nExample: " << options.program() << ' '
                     << "-i example.fa -o example.gff -c -f gff                 \n";
             NON_ERR;
-        } else if (args.count("version")) { Debug() << VERSION << "\n"; NON_ERR; 
+        } else if (args.count("version")) { std::cout << VERSION << "\n"; NON_ERR;
         } else if (args.count("quiet"))   { debug = &DEVNULL; };
 
         return args;

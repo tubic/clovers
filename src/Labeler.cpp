@@ -530,7 +530,7 @@ class Labeler {
             Debug() << options.help() << "\nExample: " << options.program() << ' '
                     << "-i example.fa -o example.gff -c                    \n";
             NON_ERR;
-        } else if (args.count("version")) { Debug() << VERSION << "\n"; NON_ERR; 
+        } else if (args.count("version")) { std::cout << VERSION << "\n"; NON_ERR;
         } else if (args.count("quiet"))   { debug = &DEVNULL; };
 
         return args;

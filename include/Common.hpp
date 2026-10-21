@@ -3,9 +3,9 @@
  * 
  * @copyright (C)2026 TUBIC, Tianjin University
  * @authors:  Zetong Z, You Z, Lin Y*, Gao F*
- * @version   1.2.0
+ * @version   1.2.1
  * @date      2026-05-01
- * @modified  2026-09-25
+ * @modified  2026-10-20
  * @license:  GNU-GPLv3
  */
 #pragma once
@@ -54,7 +54,7 @@ static_assert(sizeof(float) == 4, "embedded MLP weights require 32-bit float");
 /* to_string */
 #define Str std::to_string
 /* software version */
-#define VERSION "CLOVERS_v1.2.0"
+#define VERSION "CLOVERS_v1.2.1"
 /* no throw memory error new */
 #define NEW new (std::nothrow)
 /* The buffer size for file reading. */
@@ -219,7 +219,7 @@ const float Z_COORD[][3] = {
     {+0, +1, +0}, {+0, +0, +0}, {+0, +0, +0}, {+0, +0, +0},
     {+0, +0, +0}, {+1, +0, +0}, {+0, +0, -1}, {-1, -1, +1},
     {-1, -1, +1}, {+W, +W, -W}, {+0, +0, +1}, {+0, +0, +0},
-    {+1, +0, +0}, {+1, +1, +1}, {+0, +0, +0}, {+0, +0, +0},
+    {-1, +0, +0}, {+1, +1, +1}, {+0, +0, +0}, {+0, +0, +0},
     {+0, +0, +0}, {+0, +0, +0}, {+0, +0, +0}, {+0, +0, +0},
     {+1, +1, +1}, {-W, -W, -W}, {-1, +1, -1}, {+W, -W, +W},
     {+0, +0, +0}, {+0, +0, +0}, {+1, -1, -1}, {-W, +W, +W},
@@ -227,7 +227,7 @@ const float Z_COORD[][3] = {
     {+0, +1, +0}, {+0, +0, +0}, {+0, +0, +0}, {+0, +0, +0},
     {+0, +0, +0}, {+1, +0, +0}, {+0, +0, -1}, {-1, -1, +1},
     {-1, -1, +1}, {+W, +W, -W}, {+0, +0, +1}, {+0, +0, +0},
-    {+1, +0, +0}, {+1, +1, +1}
+    {-1, +0, +0}, {+1, +1, +1}
 };
 /*
  * format debug info to [key:[pad]value]-like logs
@@ -1116,7 +1116,7 @@ namespace model {
             3,        /* degree       */
             1.0/DIM_S,/* gamma        */
             0.0,      /* coef0        */
-            200,      /* cache_size   */
+            50,       /* cache_size   */
             1e-3,     /* eps          */
             1.0,      /* C            */
             0,        /* nr_weight    */
@@ -1233,15 +1233,24 @@ namespace model {
             const int n = (int) orfs.size();
             if (n == 0 || !model) return;
 
+        #if defined(WEB)
+            // WEB builds reuse raw zcurve features after scoring (save_bin),
+            // so keep the matrix intact and predict on a scaled copy
             flt_arr samples(n*DIM_A);
             std::memcpy(samples.data(), orfs.row(), n*DIM_A*sizeof(float));
-            transform(samples.data(), n);
+            float *data = samples.data();
+        #else
+            // features are dead after scoring: scale the matrix in place and
+            // avoid a full n*DIM_A duplicate
+            float *data = orfs.row();
+        #endif
+            transform(data, n);
 
             #ifdef _OPENMP
                 #pragma omp parallel for
             #endif
             for (int i = 0; i < n; i ++) {
-                float *row = samples.data() + i * DIM_A;
+                float *row = data + i * DIM_A;
                 orfs[i].c_score = svm_predict_score(model, row, DIM_A);
             }
         }
