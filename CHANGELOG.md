@@ -1,6 +1,11 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## [1.2.2] - 2026-10-28
+
+### Changed
+- The scalar TIS-CNN backend, used when the build lacks AVX2/FMA, now scores start-codon candidates in parallel with OpenMP. On 8 threads the bundled `example.fa` drops from 6.7 s to 2.0 s, putting baseline builds within about 1.3x of the AVX2 backend. Predictions are unchanged.
+
 ## [1.2.1] - 2026-10-20
 
 ### Added

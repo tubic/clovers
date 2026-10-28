@@ -3,9 +3,9 @@
  * 
  * @copyright (C)2026 TUBIC, Tianjin University
  * @authors:  Zetong Z, You Z, Lin Y*, Gao F*
- * @version   1.2.1
+ * @version   1.2.2
  * @date      2026-05-01
- * @modified  2026-10-20
+ * @modified  2026-10-28
  * @license:  GNU-GPLv3
  */
 #pragma once
@@ -54,7 +54,7 @@ static_assert(sizeof(float) == 4, "embedded MLP weights require 32-bit float");
 /* to_string */
 #define Str std::to_string
 /* software version */
-#define VERSION "CLOVERS_v1.2.1"
+#define VERSION "CLOVERS_v1.2.2"
 /* no throw memory error new */
 #define NEW new (std::nothrow)
 /* The buffer size for file reading. */
@@ -1930,8 +1930,11 @@ namespace model {
                 const std::vector<int> &c_strand,
                 const std::vector<int64_t> &c_start,
                 float *out_probs) {
-            float xg[IN_CH * L0 * 8], x[IN_CH * L0];
-            for (size_t q = 0; q < c_start.size(); q++) {
+            #ifdef _OPENMP
+                #pragma omp parallel for schedule(static)
+            #endif
+            for (long q = 0; q < (long) c_start.size(); q++) {
+                float xg[IN_CH * L0 * 8], x[IN_CH * L0];
                 featurize_lane(scafs[c_scaf[q]], c_strand[q],
                                (size_t) c_start[q], xg, 0);
                 for (int ch = 0; ch < IN_CH; ch++)

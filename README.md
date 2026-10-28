@@ -40,6 +40,8 @@ conda install -c conda-forge -c bioconda clovers
 # or with micromamba/mamba
 ```
 
+> **Tip:** the Bioconda build targets baseline x86-64 (no AVX), so it also runs on pre-Haswell CPUs but is somewhat slower than the AVX precompiled binaries.
+
 Download the latest precompiled binary executable file (Linux/Windows/MacOS, 64-bit) from the [release page](https://tubic.tju.edu.cn/clovers/downloads), and decompress it to the directory of your choice. 
 
 ```bash
@@ -213,8 +215,8 @@ SQ
     ##gff-version 3
     # trans_tbl: 11
     # NC_000913.3	4641652 bp	circular	UNA	19-MAY-2026
-    NC_000913.3	CLOVERS_v1.2.1	CDS	337	2799	0.974	+	0	ID=ORF000001;partial=00
-    NC_000913.3	CLOVERS_v1.2.1	CDS	2801	3733	0.968	+	0	ID=ORF000002;partial=00
+    NC_000913.3	CLOVERS_v1.2.2	CDS	337	2799	0.974	+	0	ID=ORF000001;partial=00
+    NC_000913.3	CLOVERS_v1.2.2	CDS	2801	3733	0.968	+	0	ID=ORF000002;partial=00
     . . .
     ```
     **GenBank File Example:**
@@ -226,13 +228,13 @@ SQ
                          /locus_tag=ORF000001
                          /transl_table=11
                          /codon_start=1
-                         /note="Derived by protein-coding gene prediction method: CLOVERS_v1.2.1"
+                         /note="Derived by protein-coding gene prediction method: CLOVERS_v1.2.2"
                          /translation="MRVLKFGG...LGV*"
          CDS             2801..3733
                          /locus_tag=ORF000002
                          /transl_table=11
                          /codon_start=1
-                         /note="Derived by protein-coding gene prediction method: CLOVERS_v1.2.1"
+                         /note="Derived by protein-coding gene prediction method: CLOVERS_v1.2.2"
                          /translation="MVKVYAPA...LEN*"
     . . .
     ORIGIN

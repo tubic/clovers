@@ -143,7 +143,7 @@ class Clovers {
 
         if (argc <= 1 || args.count("help")) {
             Debug() << "- - - - - - - - - - - - - - - - - - - - - - - - - - - -\n"
-                       "PROTEIN-CODING GENE RECOGNITION SYSTEM OF CLOVERS 1.2.1\n\n"
+                       "PROTEIN-CODING GENE RECOGNITION SYSTEM OF CLOVERS 1.2.2\n\n"
                        "Copyright:  (C) 2003-2026 TUBIC, Tianjin University    \n"
                        "Authors:    Zetong Z, You Z, Lin Y*, Gao F*            \n"
                        "Date:       March 31, 2026                             \n"
